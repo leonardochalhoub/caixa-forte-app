@@ -50,10 +50,22 @@ export function SignupForm() {
         typeof window !== "undefined" && window.location.origin
           ? window.location.origin
           : (process.env.NEXT_PUBLIC_SITE_URL ?? "")
+      // Stash the picked city + gender inside user_metadata so the first
+      // authenticated pageload (on ANY device, after email confirmation)
+      // can sync them into profiles. Avoids the cross-device data loss
+      // that happened when we only kept them in localStorage.
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${origin}/auth/callback` },
+        options: {
+          emailRedirectTo: `${origin}/auth/callback`,
+          data: {
+            pending_city_ibge: city.ibge_id,
+            pending_city_name: city.name,
+            pending_uf: city.uf,
+            pending_gender: gender,
+          },
+        },
       })
       if (error) {
         toast.error("Não foi possível criar a conta.", {
