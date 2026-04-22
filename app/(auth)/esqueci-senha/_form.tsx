@@ -17,9 +17,15 @@ export function ForgotPasswordForm() {
     event.preventDefault()
     start(async () => {
       const supabase = createBrowserClient()
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
+      // Prefer window.location.origin so the reset link always points back
+      // to the domain the user requested it from (prod vs. preview vs.
+      // localhost). Matches the signup flow fix.
+      const origin =
+        typeof window !== "undefined" && window.location.origin
+          ? window.location.origin
+          : (process.env.NEXT_PUBLIC_SITE_URL ?? "")
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${siteUrl}/redefinir-senha`,
+        redirectTo: `${origin}/redefinir-senha`,
       })
       if (error) {
         toast.error("Não foi possível enviar.", {

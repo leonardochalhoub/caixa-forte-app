@@ -41,11 +41,19 @@ export function SignupForm() {
     }
     start(async () => {
       const supabase = createBrowserClient()
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
+      // Prefer the origin the user is actually on so confirmation emails
+      // link back to wherever they signed up (Vercel prod vs. preview vs.
+      // local). Fall back to NEXT_PUBLIC_SITE_URL only if the origin is
+      // somehow unavailable — avoids baking a stale env var into a
+      // cross-device email link that Safari then can't reach.
+      const origin =
+        typeof window !== "undefined" && window.location.origin
+          ? window.location.origin
+          : (process.env.NEXT_PUBLIC_SITE_URL ?? "")
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${siteUrl}/auth/callback` },
+        options: { emailRedirectTo: `${origin}/auth/callback` },
       })
       if (error) {
         toast.error("Não foi possível criar a conta.", {
