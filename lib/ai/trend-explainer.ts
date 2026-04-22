@@ -19,6 +19,46 @@ const FALLBACK: TrendExplanations = {
   last12: "",
 }
 
+// In-memory TTL cache. Survives warm lambdas on Vercel for ~5–10 min,
+// which is enough to absorb a burst of dashboard refreshes without firing
+// a fresh Groq call each time. Key derived from the numeric input so any
+// change in the underlying flow forces a fresh call.
+const CACHE_TTL_MS = 30 * 60 * 1000 // 30 minutes
+const cache = new Map<string, { at: number; value: TrendExplanations }>()
+
+function cacheKey(
+  current: TrendPeriodInput,
+  last6: TrendPeriodInput,
+  last12: TrendPeriodInput,
+): string {
+  const mini = (p: TrendPeriodInput) =>
+    `${p.label}|${p.direction}|${Math.round(p.netCents / 100)}|` +
+    p.monthly.map((m) => `${m.month}:${Math.round(m.netCents / 100)}`).join(",")
+  return [mini(current), mini(last6), mini(last12)].join("||")
+}
+
+function getCached(key: string): TrendExplanations | null {
+  const hit = cache.get(key)
+  if (!hit) return null
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    cache.delete(key)
+    return null
+  }
+  return hit.value
+}
+
+function setCached(key: string, value: TrendExplanations) {
+  cache.set(key, { at: Date.now(), value })
+  // Opportunistic cleanup — keeps the map from growing unbounded on
+  // long-lived lambdas.
+  if (cache.size > 256) {
+    const cutoff = Date.now() - CACHE_TTL_MS
+    for (const [k, v] of cache) {
+      if (v.at < cutoff) cache.delete(k)
+    }
+  }
+}
+
 /**
  * Generates three short pt-BR explanations of the aggregate-trend verdicts
  * (mês atual, 6m, 12m) via Groq so the sysadmin sees *why* the number went
@@ -33,6 +73,10 @@ export async function explainTrends(
   last6: TrendPeriodInput,
   last12: TrendPeriodInput,
 ): Promise<TrendExplanations> {
+  const key = cacheKey(current, last6, last12)
+  const cached = getCached(key)
+  if (cached) return cached
+
   const groq = getGroqClient()
   if (!groq) return FALLBACK
 
@@ -79,11 +123,15 @@ Responda APENAS com JSON no formato exato:
     })
     const raw = resp.choices[0]?.message?.content ?? ""
     const parsed = JSON.parse(raw) as Partial<TrendExplanations>
-    return {
+    const value: TrendExplanations = {
       current: parsed.current ?? "",
       last6: parsed.last6 ?? "",
       last12: parsed.last12 ?? "",
     }
+    // Only cache non-empty responses so a transient failure doesn't pin
+    // blank sentences for 30 minutes.
+    if (value.current || value.last6 || value.last12) setCached(key, value)
+    return value
   } catch {
     return FALLBACK
   }
