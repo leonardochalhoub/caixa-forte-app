@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caixa Forte — É preto no branco!</title>
+<meta name="description" content="Controle financeiro grátis, open source, com IA. Registre ganhos e gastos por voz, texto ou Telegram.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ THEME — CAIXA FORTE MONOCHROME ============ */
+  :root {
+    --font-body: 'Instrument Serif', Georgia, serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+
+    /* Dark default — pure ink palette */
+    --bg: #0a0a0a;
+    --bg2: #111111;
+    --surface: #161616;
+    --surface2: #1f1f1f;
+    --surface-elevated: #262626;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-bright: rgba(255, 255, 255, 0.18);
+    --border-glow: rgba(255, 255, 255, 0.28);
+    --text: #f4f4f4;
+    --text-dim: #b4b4b4;
+    --text-muted: #787878;
+
+    /* Accent = pure white/black — monochrome identity */
+    --accent: #ffffff;
+    --accent-deep: #d4d4d4;
+    --accent-dim: rgba(255, 255, 255, 0.06);
+    --accent-glow: rgba(255, 255, 255, 0.08);
+
+    /* Muted semantic for before/after + privacy only */
+    --green: #86efac;
+    --green-dim: rgba(134, 239, 172, 0.06);
+    --green-border: rgba(134, 239, 172, 0.28);
+    --blue: #cbd5e1;
+    --blue-dim: rgba(203, 213, 225, 0.06);
+    --blue-border: rgba(203, 213, 225, 0.28);
+    --amber: #e5e5e5;
+    --amber-dim: rgba(229, 229, 229, 0.06);
+    --amber-border: rgba(229, 229, 229, 0.25);
+    --red: #fca5a5;
+    --red-dim: rgba(252, 165, 165, 0.06);
+
+    --grid: rgba(255, 255, 255, 0.04);
+    --code-bg: #000000;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --bg2: #f6f6f6;
+      --surface: #fafafa;
+      --surface2: #f0f0f0;
+      --surface-elevated: #ffffff;
+      --border: rgba(0, 0, 0, 0.1);
+      --border-bright: rgba(0, 0, 0, 0.2);
+      --border-glow: rgba(0, 0, 0, 0.35);
+      --text: #0a0a0a;
+      --text-dim: #4b4b4b;
+      --text-muted: #8a8a8a;
+
+      --accent: #0a0a0a;
+      --accent-deep: #333333;
+      --accent-dim: rgba(0, 0, 0, 0.05);
+      --accent-glow: rgba(0, 0, 0, 0.08);
+
+      --green: #166534;
+      --green-dim: rgba(22, 101, 52, 0.06);
+      --green-border: rgba(22, 101, 52, 0.25);
+      --blue: #1e293b;
+      --blue-dim: rgba(30, 41, 59, 0.06);
+      --blue-border: rgba(30, 41, 59, 0.25);
+      --amber: #44403c;
+      --amber-dim: rgba(68, 64, 60, 0.05);
+      --amber-border: rgba(68, 64, 60, 0.25);
+      --red: #991b1b;
+      --red-dim: rgba(153, 27, 27, 0.05);
+
+      --grid: rgba(0, 0, 0, 0.05);
+      --code-bg: #f0f0f0;
+    }
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font-body); color: var(--text); background: var(--bg); overflow: hidden; }
+
+  /* ============ DECK ENGINE ============ */
+  .deck { height: 100dvh; overflow-y: auto; scroll-snap-type: y mandatory; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+  .slide {
+    height: 100dvh; scroll-snap-align: start; overflow: hidden; position: relative;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: clamp(40px, 6vh, 80px) clamp(40px, 8vw, 120px);
+    isolation: isolate;
+    opacity: 0; transform: translateY(40px) scale(0.98);
+    transition: opacity 0.6s cubic-bezier(0.16,1,0.3,1), transform 0.6s cubic-bezier(0.16,1,0.3,1);
+  }
+  .slide.visible { opacity: 1; transform: none; }
+  .slide .reveal { opacity: 0; transform: translateY(20px); transition: opacity 0.5s cubic-bezier(0.16,1,0.3,1), transform 0.5s cubic-bezier(0.16,1,0.3,1); }
+  .slide.visible .reveal { opacity: 1; transform: none; }
+  .slide.visible .reveal:nth-child(1) { transition-delay: 0.1s; }
+  .slide.visible .reveal:nth-child(2) { transition-delay: 0.2s; }
+  .slide.visible .reveal:nth-child(3) { transition-delay: 0.3s; }
+  .slide.visible .reveal:nth-child(4) { transition-delay: 0.4s; }
+  .slide.visible .reveal:nth-child(5) { transition-delay: 0.5s; }
+  .slide.visible .reveal:nth-child(6) { transition-delay: 0.6s; }
+  @media (prefers-reduced-motion: reduce) { .slide, .slide .reveal { opacity:1!important; transform:none!important; transition:none!important; } }
+
+  /* Subtle grid background */
+  .slide::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1; opacity: 0.5;
+    background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* ============ NAV CHROME ============ */
+  .deck-progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); z-index: 100; transition: width 0.3s ease; pointer-events: none; }
+  .deck-dots { position: fixed; right: clamp(12px,2vw,24px); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 100; padding: 8px; background: color-mix(in srgb, var(--bg) 70%, transparent); border-radius: 20px; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+  .deck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); opacity: 0.3; border: none; padding: 0; cursor: pointer; transition: opacity 0.2s, transform 0.2s; }
+  .deck-dot:hover { opacity: 0.6; }
+  .deck-dot.active { opacity: 1; transform: scale(1.5); background: var(--accent); }
+  .deck-counter { position: fixed; bottom: clamp(12px,2vh,24px); right: clamp(12px,2vw,24px); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); z-index: 100; font-variant-numeric: tabular-nums; }
+  .deck-hints { position: fixed; bottom: clamp(12px,2vh,24px); left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); opacity: 0.6; z-index: 100; transition: opacity 0.5s; white-space: nowrap; }
+  .deck-hints.faded { opacity: 0; pointer-events: none; }
+  .deck-close { position: fixed; top: clamp(12px,2vh,24px); left: clamp(12px,2vw,24px); font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); z-index: 100; text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); transition: color 0.2s, border-color 0.2s; }
+  .deck-close:hover { color: var(--text); border-color: var(--border-glow); }
+
+  /* ============ TYPE ============ */
+  .slide__display { font-size: clamp(48px,10vw,140px); font-weight: 400; letter-spacing: -2px; line-height: 0.95; text-wrap: balance; }
+  .slide__heading { font-size: clamp(28px,5vw,52px); font-weight: 400; letter-spacing: -0.5px; line-height: 1.15; text-wrap: balance; }
+  .slide__body { font-size: clamp(16px,2.2vw,22px); line-height: 1.6; color: var(--text-dim); text-wrap: pretty; }
+  .slide__subtitle { font-family: var(--font-mono); font-size: clamp(12px,1.5vw,18px); color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+  .slide__label { font-family: var(--font-mono); font-size: clamp(10px,1.2vw,13px); font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 12px; }
+  .slide__decor { position: absolute; pointer-events: none; z-index: 0; }
+  em, .italic { font-style: italic; font-family: var(--font-body); }
+
+  /* ============ TITLE SLIDE ============ */
+  .slide--title { justify-content: center; align-items: center; text-align: center; background-image: radial-gradient(ellipse at 50% 30%, var(--accent-glow) 0%, transparent 55%); }
+  .slide--title .slide__display { color: var(--text); }
+  .slide--title .tagline { font-family: var(--font-body); font-style: italic; font-size: clamp(20px,3vw,32px); color: var(--text-dim); margin-top: 12px; }
+  .slide--title .pill-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: clamp(24px,4vh,48px); }
+  .slide--title .pill { font-family: var(--font-mono); font-size: clamp(12px,1.3vw,14px); padding: 6px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); }
+  .slide--title .pill strong { color: var(--accent); font-weight: 600; }
+
+  /* ============ SPLIT SLIDE ============ */
+  .slide--split { padding: 0; }
+  .slide--split .slide__panels { display: grid; grid-template-columns: 1fr 1fr; height: 100%; }
+  .slide--split .slide__panel { padding: clamp(40px,6vh,80px) clamp(32px,4vw,60px); display: flex; flex-direction: column; justify-content: center; }
+  .slide--split .slide__panel--left { background: var(--surface); }
+  .slide--split .slide__panel--right { background: var(--bg2); }
+  .slide__bullets { list-style: none; padding: 0; }
+  .slide__bullets li { padding: 10px 0 10px 24px; position: relative; font-size: clamp(16px,2vw,22px); line-height: 1.5; color: var(--text-dim); }
+  .slide__bullets li::before { content: ''; position: absolute; left: 0; top: 20px; width: 6px; height: 6px; border-radius: 50%; }
+
+  /* ============ PIPELINE SLIDE ============ */
+  .vpipe { display: flex; align-items: stretch; gap: 0; margin-top: clamp(16px,3vh,32px); flex: 1; min-height: 0; }
+  .vpipe__col { display: flex; flex-direction: column; justify-content: center; gap: clamp(8px,1.2vh,14px); flex: 1; min-width: 0; }
+  .vpipe__card {
+    background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
+    padding: clamp(12px,2vh,22px) clamp(12px,1.5vw,20px);
+    position: relative; overflow: hidden; transition: border-color 0.3s;
+  }
+  .vpipe__card:hover { border-color: var(--border-glow); }
+  .vpipe__card--accent { border-color: var(--accent); border-left: 3px solid var(--accent); box-shadow: 0 0 20px var(--accent-dim), inset 0 0 20px var(--accent-dim); }
+  .vpipe__card--green  { border-color: var(--green-border); border-left: 3px solid var(--green); box-shadow: 0 0 20px var(--green-dim), inset 0 0 20px var(--green-dim); }
+  .vpipe__card--blue   { border-color: var(--blue-border); border-left: 3px solid var(--blue); box-shadow: 0 0 20px var(--blue-dim), inset 0 0 20px var(--blue-dim); }
+  .vpipe__card--amber  { border-color: var(--amber-border); border-left: 3px solid var(--amber); box-shadow: 0 0 20px var(--amber-dim), inset 0 0 20px var(--amber-dim); }
+  .vpipe__card-tag { font-family: var(--font-mono); font-size: clamp(10px,1.1vw,13px); font-weight: 700; letter-spacing: 1px; }
+  .vpipe__card-tag--accent { color: var(--accent); }
+  .vpipe__card-tag--green  { color: var(--green); }
+  .vpipe__card-tag--blue   { color: var(--blue); }
+  .vpipe__card-tag--amber  { color: var(--amber); }
+  .vpipe__card-title { font-size: clamp(14px,1.6vw,20px); font-weight: 400; margin: 4px 0 2px; }
+  .vpipe__card-desc { font-size: clamp(11px,1.2vw,14px); color: var(--text-dim); line-height: 1.4; }
+  .vpipe__card-badge { font-family: var(--font-mono); font-size: clamp(9px,1vw,11px); color: var(--text-muted); margin-top: 6px; display: inline-block; }
+  .vpipe__arrow { display: flex; align-items: center; justify-content: center; padding: 0 clamp(4px,0.6vw,10px); flex-shrink: 0; }
+  .vpipe__arrow svg { color: var(--accent); opacity: 0.55; }
+  .vpipe__section-label { font-family: var(--font-mono); font-size: clamp(9px,1vw,11px); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); text-align: center; margin-bottom: 8px; }
+
+  /* ============ FLOW (compact step row, mobile-first) ============ */
+  .slide--flow { align-items: center; }
+  .flow {
+    display: flex; align-items: stretch; gap: clamp(8px, 1.5vw, 20px);
+    margin-top: clamp(24px, 4vh, 48px);
+    width: 100%; max-width: 960px; margin-left: auto; margin-right: auto;
+  }
+  .flow__step {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    padding: clamp(16px, 2.4vh, 28px) clamp(12px, 1.5vw, 20px);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+  .flow__step:hover { border-color: var(--border-glow); transform: translateY(-2px); }
+  .flow__icon { font-size: clamp(32px, 4vw, 44px); line-height: 1; margin-bottom: clamp(8px, 1.5vh, 14px); }
+  .flow__label {
+    font-family: var(--font-mono); font-size: clamp(10px, 1.2vw, 13px);
+    font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .flow__body {
+    font-size: clamp(12px, 1.3vw, 15px); color: var(--text-dim); line-height: 1.4;
+  }
+  .flow__arrow {
+    flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: clamp(18px, 2vw, 24px);
+    color: var(--accent); opacity: 0.55;
+  }
+  @media (max-width: 720px) {
+    .flow { flex-wrap: wrap; }
+    .flow__step { flex-basis: calc(50% - 6px); }
+    .flow__arrow { display: none; }
+  }
+  @media (max-width: 420px) {
+    .flow__step { flex-basis: 100%; }
+  }
+
+  /* ============ DASHBOARD / KPI SLIDE ============ */
+  .slide--dashboard .slide__kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(clamp(140px,20vw,220px), 1fr)); gap: clamp(12px,2vw,24px); }
+  .slide__kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: clamp(16px,3vh,32px) clamp(16px,2vw,24px); min-width: 0; overflow: hidden; }
+  .slide__kpi-val { font-size: clamp(36px,6vw,68px); font-weight: 400; letter-spacing: -1.5px; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .slide__kpi-label { font-family: var(--font-mono); font-size: clamp(9px,1.2vw,13px); font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-top: 8px; }
+  .slide__kpi-trend { font-family: var(--font-mono); font-size: 12px; margin-top: 4px; color: var(--text-muted); }
+
+  /* ============ FEATURE CARDS GRID ============ */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: clamp(12px, 1.6vw, 20px);
+    margin-top: clamp(16px, 3vh, 32px);
+  }
+  .feature-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: clamp(16px, 2.5vh, 24px);
+    transition: border-color 0.3s, transform 0.3s;
+  }
+  .feature-card:hover { border-color: var(--border-glow); transform: translateY(-2px); }
+  .feature-card__emoji { font-size: clamp(24px, 3vw, 32px); margin-bottom: 8px; }
+  .feature-card__title { font-size: clamp(16px, 1.8vw, 22px); font-weight: 400; margin-bottom: 6px; }
+  .feature-card__body { font-size: clamp(12px, 1.3vw, 15px); color: var(--text-dim); line-height: 1.5; }
+
+  /* ============ STEPS ============ */
+  .steps { display: grid; gap: clamp(12px, 2vh, 20px); margin-top: clamp(16px, 3vh, 32px); }
+  .step {
+    display: grid; grid-template-columns: auto 1fr; gap: clamp(16px, 2.5vw, 28px);
+    align-items: start;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: clamp(16px, 2.5vh, 24px);
+  }
+  .step__num {
+    font-family: var(--font-mono); font-size: clamp(24px, 3vw, 36px); font-weight: 600;
+    color: var(--accent);
+    min-width: clamp(44px, 5vw, 64px);
+    border-right: 1px solid var(--border);
+    padding-right: clamp(16px, 2vw, 24px);
+    line-height: 1;
+  }
+  .step__body { font-size: clamp(14px, 1.5vw, 18px); color: var(--text-dim); line-height: 1.5; }
+  .step__body code {
+    font-family: var(--font-mono); font-size: 0.9em;
+    background: var(--code-bg); color: var(--accent);
+    padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
+  }
+  .step__body strong { color: var(--text); font-weight: 500; }
+
+  /* ============ FULL-BLEED ============ */
+  .slide--bleed { padding: 0; justify-content: center; align-items: center; text-align: center; background: var(--accent); color: var(--bg); }
+  .slide--bleed .slide__content { position: relative; z-index: 2; padding: clamp(40px,6vh,80px) clamp(40px,8vw,120px); }
+  .slide--bleed .slide__display { color: var(--bg); font-size: clamp(44px,9vw,120px); }
+  .slide--bleed .slide__subtitle { color: color-mix(in srgb, var(--bg) 80%, transparent); }
+  .slide--bleed .cta-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: clamp(32px, 5vh, 56px); }
+  .slide--bleed .cta {
+    font-family: var(--font-mono); font-size: clamp(13px, 1.5vw, 16px); font-weight: 600;
+    padding: clamp(12px, 1.6vh, 16px) clamp(20px, 3vw, 32px);
+    border-radius: 999px; text-decoration: none; border: 1px solid var(--bg);
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .slide--bleed .cta:hover { transform: translateY(-1px); }
+  .slide--bleed .cta--solid { background: var(--bg); color: var(--accent); }
+  .slide--bleed .cta--solid:hover { opacity: 0.88; }
+  .slide--bleed .cta--ghost { background: transparent; color: var(--bg); }
+  .slide--bleed .cta--ghost:hover { background: color-mix(in srgb, var(--bg) 12%, transparent); }
+  .slide--bleed::after { display: none; }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-height: 700px) { .slide { padding: clamp(24px,4vh,40px) clamp(32px,6vw,80px); } .slide__display { font-size: clamp(36px,8vw,72px); } }
+  @media (max-height: 500px) { .slide { padding: clamp(16px,3vh,24px) clamp(24px,5vw,48px); } .deck-dots { display: none; } .slide__display { font-size: clamp(28px,7vw,48px); } }
+  @media (max-width: 768px) {
+    .slide--split .slide__panels { grid-template-columns: 1fr; }
+    .vpipe { flex-direction: column; }
+    .vpipe__arrow { transform: rotate(90deg); padding: 4px 0; }
+    .slide--dashboard .slide__kpis { grid-template-columns: repeat(2, 1fr); }
+    .features-grid { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 480px) {
+    .features-grid { grid-template-columns: 1fr; }
+    .step { grid-template-columns: 1fr; gap: 8px; }
+    .step__num { border-right: none; padding-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<a href="/" class="deck-close">← voltar</a>
+
+<div class="deck">
+
+  <!-- ═══════ SLIDE 1: TITLE ═══════ -->
+  <section class="slide slide--title">
+    <svg class="slide__decor" style="top:0;right:0;" width="120" height="120" viewBox="0 0 120 120">
+      <line x1="120" y1="0" x2="120" y2="40" stroke="var(--accent)" stroke-width="2" opacity="0.22"/>
+      <line x1="80" y1="0" x2="120" y2="0" stroke="var(--accent)" stroke-width="2" opacity="0.22"/>
+    </svg>
+    <svg class="slide__decor" style="bottom:0;left:0;" width="120" height="120" viewBox="0 0 120 120">
+      <line x1="0" y1="80" x2="0" y2="120" stroke="var(--accent)" stroke-width="2" opacity="0.22"/>
+      <line x1="0" y1="120" x2="40" y2="120" stroke="var(--accent)" stroke-width="2" opacity="0.22"/>
+    </svg>
+    <div class="reveal">
+      <p class="slide__subtitle" style="margin-bottom:clamp(16px,2vh,32px);">Controle financeiro pessoal · open source</p>
+    </div>
+    <h1 class="slide__display reveal">Caixa Forte</h1>
+    <div class="reveal">
+      <p class="tagline">É preto no branco!</p>
+    </div>
+    <div class="reveal pill-row">
+      <span class="pill"><strong>IA</strong> voz + texto</span>
+      <span class="pill"><strong>R$ 0</strong> pra sempre</span>
+      <span class="pill"><strong>LGPD</strong> + RLS</span>
+      <span class="pill"><strong>pt-BR</strong> nativo</span>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 2: BEFORE / AFTER ═══════ -->
+  <section class="slide slide--split">
+    <div class="slide__panels">
+      <div class="slide__panel slide__panel--left">
+        <p class="slide__label reveal" style="color:var(--red);">Planilha + App pago</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(22px,3.5vw,38px);">Fricção + assinatura + dados trancados</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal">Excel de 2015 que ninguém atualiza</li>
+          <li class="reveal">App pago cobrando por cada conta</li>
+          <li class="reveal">IA proprietária que decide sozinha e erra</li>
+          <li class="reveal">Dados no cofre, sem ninguém auditar</li>
+        </ul>
+        <style>.slide__panel--left .slide__bullets li::before { background: var(--red); }</style>
+      </div>
+      <div class="slide__panel slide__panel--right">
+        <p class="slide__label reveal" style="color:var(--green);">Caixa Forte</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(22px,3.5vw,38px);">Segundos por transação. Zero custo. Tudo aberto.</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal">Fale ou digite — a IA estrutura em ~300ms</li>
+          <li class="reveal">Código no GitHub, licença permissiva</li>
+          <li class="reveal">Você sempre revê e corrige o que a IA propôs</li>
+          <li class="reveal">Row-Level Security em cada tabela</li>
+        </ul>
+        <style>.slide__panel--right .slide__bullets li::before { background: var(--green); }</style>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 3: FLOW (compact, mobile-friendly) ═══════ -->
+  <section class="slide slide--flow" style="background-image: radial-gradient(ellipse at 50% 60%, var(--accent-glow) 0%, transparent 45%);">
+    <p class="slide__label reveal">O fluxo</p>
+    <h2 class="slide__heading reveal">Do que você fala até o dashboard — em 3 segundos</h2>
+
+    <div class="flow reveal">
+      <div class="flow__step">
+        <div class="flow__icon">🎤</div>
+        <div class="flow__label">Captura</div>
+        <div class="flow__body">Fala, digita ou manda no Telegram</div>
+      </div>
+      <div class="flow__arrow">→</div>
+      <div class="flow__step">
+        <div class="flow__icon">🤖</div>
+        <div class="flow__label">Groq</div>
+        <div class="flow__body">Whisper + Llama 3.3 em ~300ms</div>
+      </div>
+      <div class="flow__arrow">→</div>
+      <div class="flow__step">
+        <div class="flow__icon">✍️</div>
+        <div class="flow__label">Revisão</div>
+        <div class="flow__body">Você valida a proposta da IA</div>
+      </div>
+      <div class="flow__arrow">→</div>
+      <div class="flow__step">
+        <div class="flow__icon">📊</div>
+        <div class="flow__label">Dashboard</div>
+        <div class="flow__body">Saldo, KPIs, tendência explicada</div>
+      </div>
+    </div>
+
+    <p class="slide__body reveal" style="margin-top:clamp(20px,3vh,36px); text-align:center; max-width:720px; margin-left:auto; margin-right:auto;">
+      A IA propõe, você decide. Transações com confiança baixa vão pra uma fila de revisão
+      antes de entrar no saldo — nada é gravado sem passar pelos seus olhos.
+    </p>
+  </section>
+
+  <!-- ═══════ SLIDE 4: KPIs ═══════ -->
+  <section class="slide slide--dashboard" style="background-image:radial-gradient(ellipse at 70% 30%, var(--accent-glow) 0%, transparent 40%);">
+    <p class="slide__label reveal">O que você recebe</p>
+    <h2 class="slide__heading reveal">Tudo pronto desde o primeiro login</h2>
+    <div class="slide__kpis" style="margin-top:clamp(16px,3vh,32px);">
+      <div class="slide__kpi reveal">
+        <div class="slide__kpi-val">R$ 0</div>
+        <div class="slide__kpi-label">pra sempre</div>
+        <div class="slide__kpi-trend">Sem trial, sem premium</div>
+      </div>
+      <div class="slide__kpi reveal">
+        <div class="slide__kpi-val">IA</div>
+        <div class="slide__kpi-label">Voz + Texto</div>
+        <div class="slide__kpi-trend">Llama 3.3 · Whisper Large</div>
+      </div>
+      <div class="slide__kpi reveal">
+        <div class="slide__kpi-val">∞</div>
+        <div class="slide__kpi-label">Contas</div>
+        <div class="slide__kpi-trend">Conta · RF · RV · Cripto · FGTS</div>
+      </div>
+      <div class="slide__kpi reveal">
+        <div class="slide__kpi-val">RLS</div>
+        <div class="slide__kpi-label">Privacidade</div>
+        <div class="slide__kpi-trend">Row-level em toda tabela</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 5: FEATURES ═══════ -->
+  <section class="slide">
+    <p class="slide__label reveal">Recursos</p>
+    <h2 class="slide__heading reveal">Construído pra ser usado todo dia</h2>
+    <div class="features-grid reveal">
+      <div class="feature-card">
+        <div class="feature-card__emoji">🎤</div>
+        <div class="feature-card__title">Voz no microfone</div>
+        <div class="feature-card__body">Whisper transcreve, Llama estrutura. 3 segundos do áudio ao dashboard.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">🤖</div>
+        <div class="feature-card__title">Bot no Telegram</div>
+        <div class="feature-card__body">Token de 8 dígitos no Perfil, <code style="font-family:var(--font-mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;">/start</code> e pronto.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">🏦</div>
+        <div class="feature-card__title">Multi-banco</div>
+        <div class="feature-card__body">Nubank, Caixa, MP, corretoras. Logo vem automático pelo domínio.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">📊</div>
+        <div class="feature-card__title">Tendência IA</div>
+        <div class="feature-card__body">1/6/12 meses com frase explicando a causa, não só o veredito.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">🏷️</div>
+        <div class="feature-card__title">Categorias vivas</div>
+        <div class="feature-card__body">Crie, aninhe, reorganize. Clique pra ver todas as transações da categoria.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">✅</div>
+        <div class="feature-card__title">Agendadas vs. pagas</div>
+        <div class="feature-card__body">Scheduled fora do saldo; marque como paga e o valor ajusta na hora.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">☀️</div>
+        <div class="feature-card__title">Relógio + clima</div>
+        <div class="feature-card__body">Cidade IBGE ancora relógio ao vivo e 3 dias de previsão Open-Meteo.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-card__emoji">📱</div>
+        <div class="feature-card__title">Mobile-first</div>
+        <div class="feature-card__body">Tela cabe em iPhone SE. Toque, voz, teclado numérico — tudo nativo.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 6: TELEGRAM STEPS ═══════ -->
+  <section class="slide" style="background-image: radial-gradient(ellipse at 80% 50%, var(--accent-glow) 0%, transparent 45%);">
+    <p class="slide__label reveal">Telegram · vínculo em 3 passos</p>
+    <h2 class="slide__heading reveal">Registrar sem abrir o app</h2>
+    <div class="steps reveal">
+      <div class="step">
+        <div class="step__num">01</div>
+        <div class="step__body">
+          Em <strong>Perfil</strong>, clique em <strong>Gerar token Telegram</strong>.
+          Você recebe um código de 8 caracteres válido por 15 minutos.
+        </div>
+      </div>
+      <div class="step">
+        <div class="step__num">02</div>
+        <div class="step__body">
+          No Telegram, envie <code>/start ABCD1234</code> para
+          <code>@caixaforteapp_bot</code>. O chat fica vinculado à sua conta.
+        </div>
+      </div>
+      <div class="step">
+        <div class="step__num">03</div>
+        <div class="step__body">
+          Qualquer mensagem ou áudio depois disso vira transação no dashboard — o bot só
+          lê o que você envia pra ele, <em>nunca</em> contatos ou outros chats.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 7: PRIVACY ═══════ -->
+  <section class="slide slide--split">
+    <div class="slide__panels">
+      <div class="slide__panel slide__panel--left">
+        <p class="slide__label reveal" style="color:var(--green);">O admin vê</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(22px,3.5vw,38px);">Apenas agregados</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal">Contagem total de usuários</li>
+          <li class="reveal">Distribuição por UF no Brasil</li>
+          <li class="reveal">Saldo médio e mediano entre todos</li>
+          <li class="reveal">Tendência de fluxo agregado</li>
+          <li class="reveal">Eventos de login pra segurança</li>
+        </ul>
+        <style>.slide--split .slide__panel--left .slide__bullets li::before { background: var(--green); }</style>
+      </div>
+      <div class="slide__panel slide__panel--right">
+        <p class="slide__label reveal" style="color:var(--red);">O admin NUNCA vê</p>
+        <h2 class="slide__heading reveal" style="font-size:clamp(22px,3.5vw,38px);">Nada individualizado</h2>
+        <ul class="slide__bullets" style="margin-top:16px;">
+          <li class="reveal">Transações: valor, comércio, categoria</li>
+          <li class="reveal">Saldos de contas específicas</li>
+          <li class="reveal">Áudios ou mensagens do Telegram</li>
+          <li class="reveal">Senhas (armazenadas com hash)</li>
+          <li class="reveal">Dados bancários reais</li>
+        </ul>
+        <style>.slide--split .slide__panel--right .slide__bullets li::before { background: var(--red); }</style>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 8: ROADMAP ═══════ -->
+  <section class="slide">
+    <p class="slide__label reveal">Roadmap</p>
+    <h2 class="slide__heading reveal">O que vem a seguir</h2>
+    <div class="features-grid reveal" style="margin-top:clamp(16px,3vh,32px);">
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--accent);margin-bottom:8px;">M2 · EM CONSTRUÇÃO</div>
+        <div class="feature-card__title">🤖 Bot do Telegram</div>
+        <div class="feature-card__body">Webhook + vínculo por token. Mesmo parser, dentro do chat.</div>
+      </div>
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:8px;">M2 · PLANEJADO</div>
+        <div class="feature-card__title">📸 Snapshots diários</div>
+        <div class="feature-card__body">Série histórica de patrimônio pra charts de tendência precisos.</div>
+      </div>
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:8px;">M3 · PLANEJADO</div>
+        <div class="feature-card__title">🔁 Recorrências</div>
+        <div class="feature-card__body">Aluguel, mensalidade, assinatura — templates que viram transação.</div>
+      </div>
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:8px;">M3 · PLANEJADO</div>
+        <div class="feature-card__title">💬 Chat com seu dinheiro</div>
+        <div class="feature-card__body">"Quanto gastei no ifood em março?" — tool-calling Groq + RLS.</div>
+      </div>
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:8px;">M4 · PLANEJADO</div>
+        <div class="feature-card__title">🔔 Alertas</div>
+        <div class="feature-card__body">Motor de regras + notificação no Telegram quando orçamento estoura.</div>
+      </div>
+      <div class="feature-card">
+        <div style="font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:1.5px;color:var(--text-muted);margin-bottom:8px;">? · IMAGINADO</div>
+        <div class="feature-card__title">🌎 Portfolio & cripto</div>
+        <div class="feature-card__body">Preço em tempo real, rebalance assistido, carteiras DeFi.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════ SLIDE 9: CTA BLEED ═══════ -->
+  <section class="slide slide--bleed">
+    <div class="slide__content">
+      <p class="slide__subtitle reveal" style="margin-bottom:clamp(16px,2vh,32px);">Pronto?</p>
+      <h1 class="slide__display reveal">Preto no branco.<br/>Em 30 segundos.</h1>
+      <p class="slide__subtitle reveal" style="margin-top:clamp(12px,1.5vh,20px); opacity:0.8;">Criar conta · registrar primeiro gasto · entender pra onde seu dinheiro vai</p>
+      <div class="reveal cta-row">
+        <a href="/signup" class="cta cta--solid">Começar grátis</a>
+        <a href="/login" class="cta cta--ghost">Já tenho conta</a>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  function SlideEngine(){this.deck=document.querySelector('.deck');this.slides=[].slice.call(document.querySelectorAll('.slide'));this.current=0;this.total=this.slides.length;this.buildChrome();this.bindEvents();this.observe();this.update();}
+  SlideEngine.prototype.buildChrome=function(){var bar=document.createElement('div');bar.className='deck-progress';document.body.appendChild(bar);this.bar=bar;var dots=document.createElement('div');dots.className='deck-dots';var self=this;this.slides.forEach(function(_,i){var d=document.createElement('button');d.className='deck-dot';d.title='Slide '+(i+1);d.onclick=function(){self.goTo(i);};dots.appendChild(d);});document.body.appendChild(dots);this.dots=[].slice.call(dots.children);var ctr=document.createElement('div');ctr.className='deck-counter';document.body.appendChild(ctr);this.counter=ctr;var hints=document.createElement('div');hints.className='deck-hints';hints.textContent='← → ou role pra navegar';document.body.appendChild(hints);this.hints=hints;this.hintTimer=setTimeout(function(){hints.classList.add('faded');},4000);};
+  SlideEngine.prototype.bindEvents=function(){var self=this;document.addEventListener('keydown',function(e){if(e.target.closest('input,textarea,[contenteditable]'))return;if(['ArrowDown','ArrowRight',' ','PageDown'].indexOf(e.key)>-1){e.preventDefault();self.next();}else if(['ArrowUp','ArrowLeft','PageUp'].indexOf(e.key)>-1){e.preventDefault();self.prev();}else if(e.key==='Home'){e.preventDefault();self.goTo(0);}else if(e.key==='End'){e.preventDefault();self.goTo(self.total-1);}self.fadeHints();});var tY;this.deck.addEventListener('touchstart',function(e){tY=e.touches[0].clientY;},{passive:true});this.deck.addEventListener('touchend',function(e){var dy=tY-e.changedTouches[0].clientY;if(Math.abs(dy)>50){dy>0?self.next():self.prev();}});};
+  SlideEngine.prototype.observe=function(){var self=this;var obs=new IntersectionObserver(function(entries){entries.forEach(function(entry){if(entry.isIntersecting){entry.target.classList.add('visible');self.current=self.slides.indexOf(entry.target);self.update();}});},{threshold:0.5});this.slides.forEach(function(s){obs.observe(s);});};
+  SlideEngine.prototype.goTo=function(i){this.slides[Math.max(0,Math.min(i,this.total-1))].scrollIntoView({behavior:'smooth'});};
+  SlideEngine.prototype.next=function(){if(this.current<this.total-1)this.goTo(this.current+1);};
+  SlideEngine.prototype.prev=function(){if(this.current>0)this.goTo(this.current-1);};
+  SlideEngine.prototype.update=function(){this.bar.style.width=((this.current+1)/this.total*100)+'%';var c=this.current;this.dots.forEach(function(d,i){d.classList.toggle('active',i===c);});this.counter.textContent=(this.current+1)+' / '+this.total;};
+  SlideEngine.prototype.fadeHints=function(){clearTimeout(this.hintTimer);this.hints.classList.add('faded');};
+  document.addEventListener('DOMContentLoaded',function(){new SlideEngine();});
+</script>
+
+</body>
+</html>

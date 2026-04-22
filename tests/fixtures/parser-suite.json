@@ -1,0 +1,35 @@
+{
+  "metadata": {
+    "description": "Caixa Forte parser reference suite (pt-br). Used in M2 AT-015.",
+    "timezone": "America/Sao_Paulo",
+    "referenceNow": "2026-04-22T12:00:00-03:00",
+    "thresholds": {
+      "categoryAccuracy": 0.85,
+      "typeAccuracy": 0.9,
+      "amountAccuracy": 0.95,
+      "dateAccuracy": 0.95
+    }
+  },
+  "examples": [
+    { "id": 1, "input": "20 mercado da maria", "expected": { "amountCents": 2000, "type": "expense", "categoryPath": ["Mercado"], "merchant": "Mercado da Maria", "occurredOn": "2026-04-22" } },
+    { "id": 2, "input": "gastei 45 no extra ontem", "expected": { "amountCents": 4500, "type": "expense", "categoryPath": ["Mercado"], "merchant": "Extra", "occurredOn": "2026-04-21" } },
+    { "id": 3, "input": "recebi 3500 salário dia 5", "expected": { "amountCents": 350000, "type": "income", "categoryPath": ["Renda", "Salário"], "merchant": null, "occurredOn": "2026-04-05" } },
+    { "id": 4, "input": "uber 18,40", "expected": { "amountCents": 1840, "type": "expense", "categoryPath": ["Transporte", "App"], "merchant": "Uber", "occurredOn": "2026-04-22" } },
+    { "id": 5, "input": "ifood 52,90 jantar", "expected": { "amountCents": 5290, "type": "expense", "categoryPath": ["Restaurantes", "Delivery"], "merchant": "iFood", "occurredOn": "2026-04-22" } },
+    { "id": 6, "input": "netflix 55,90", "expected": { "amountCents": 5590, "type": "expense", "categoryPath": ["Assinaturas"], "merchant": "Netflix", "occurredOn": "2026-04-22" } },
+    { "id": 7, "input": "paguei luz 230 no itau", "expected": { "amountCents": 23000, "type": "expense", "categoryPath": ["Contas Fixas", "Energia"], "merchant": null, "occurredOn": "2026-04-22", "accountHint": "Itaú" } },
+    { "id": 8, "input": "farmácia 87 panvel", "expected": { "amountCents": 8700, "type": "expense", "categoryPath": ["Saúde", "Farmácia"], "merchant": "Panvel", "occurredOn": "2026-04-22" } },
+    { "id": 9, "input": "recebi 800 freela dia 12", "expected": { "amountCents": 80000, "type": "income", "categoryPath": ["Renda", "Extra"], "merchant": null, "occurredOn": "2026-04-12" } },
+    { "id": 10, "input": "pix 150 pro joão almoço", "expected": { "amountCents": 15000, "type": "expense", "categoryPath": ["Restaurantes"], "merchant": null, "occurredOn": "2026-04-22" } },
+    { "id": 11, "input": "tirei 200 da carteira", "expected": { "amountCents": 20000, "type": "expense", "categoryPath": ["Outros"], "merchant": null, "occurredOn": "2026-04-22", "accountHint": "Carteira" } },
+    { "id": 12, "input": "academia 99,90", "expected": { "amountCents": 9990, "type": "expense", "categoryPath": ["Saúde", "Academia"], "merchant": null, "occurredOn": "2026-04-22" } },
+    { "id": 13, "input": "uber eats 38", "expected": { "amountCents": 3800, "type": "expense", "categoryPath": ["Restaurantes", "Delivery"], "merchant": "Uber Eats", "occurredOn": "2026-04-22" } },
+    { "id": 14, "input": "combustivel 180 shell", "expected": { "amountCents": 18000, "type": "expense", "categoryPath": ["Transporte", "Combustível"], "merchant": "Shell", "occurredOn": "2026-04-22" } },
+    { "id": 15, "input": "padaria 15,50", "expected": { "amountCents": 1550, "type": "expense", "categoryPath": ["Mercado", "Padaria"], "merchant": null, "occurredOn": "2026-04-22" } },
+    { "id": 16, "input": "assinatura spotify 21,90", "expected": { "amountCents": 2190, "type": "expense", "categoryPath": ["Assinaturas"], "merchant": "Spotify", "occurredOn": "2026-04-22" } },
+    { "id": 17, "input": "dividendos 127,43", "expected": { "amountCents": 12743, "type": "income", "categoryPath": ["Renda", "Investimentos"], "merchant": null, "occurredOn": "2026-04-22" } },
+    { "id": 18, "input": "cinema 60 com a laura", "expected": { "amountCents": 6000, "type": "expense", "categoryPath": ["Lazer", "Cinema"], "merchant": null, "occurredOn": "2026-04-22" } },
+    { "id": 19, "input": "curso udemy 29,90", "expected": { "amountCents": 2990, "type": "expense", "categoryPath": ["Educação"], "merchant": "Udemy", "occurredOn": "2026-04-22" } },
+    { "id": 20, "input": "gasto em abril: 1200 aluguel", "expected": { "amountCents": 120000, "type": "expense", "categoryPath": ["Contas Fixas", "Moradia"], "merchant": null, "occurredOn": "2026-04-22" } }
+  ]
+}

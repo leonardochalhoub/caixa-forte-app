@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Light — grey page, white cards, pure black text. High contrast. */
+:root {
+  --color-canvas: #dcdce0;       /* ~15% lighter than zinc-300, still clearly grey */
+  --color-subtle: #ffffff;     /* pure white cards */
+  --color-border: #71717a;     /* zinc-500 — clear dividers */
+  --color-muted: #3f3f46;      /* zinc-700 — dark captions (readable everywhere) */
+  --color-body: #000000;       /* pure black body */
+  --color-strong: #000000;     /* pure black headings */
+  --color-ink: #000000;         /* pure black hero numbers */
+  --color-income: #14532d;      /* green-900 — high contrast on white */
+  --color-expense: #7f1d1d;     /* red-900 — high contrast on white */
+}
+
+/* Dark — near-black with subtle greys. */
+.dark {
+  --color-canvas: #09090b;       /* zinc-950 */
+  --color-subtle: #18181b;     /* zinc-900 */
+  --color-border: #27272a;     /* zinc-800 */
+  --color-muted: #a1a1aa;      /* zinc-400 */
+  --color-body: #d4d4d8;       /* zinc-300 */
+  --color-strong: #e4e4e7;     /* zinc-200 */
+  --color-ink: #fafafa;         /* zinc-50 */
+  --color-income: #22c55e;      /* green-500 */
+  --color-expense: #ef4444;     /* red-500 */
+}
+
+@theme inline {
+  --color-canvas: var(--color-canvas);
+  --color-subtle: var(--color-subtle);
+  --color-border: var(--color-border);
+  --color-muted: var(--color-muted);
+  --color-body: var(--color-body);
+  --color-strong: var(--color-strong);
+  --color-ink: var(--color-ink);
+  --color-income: var(--color-income);
+  --color-expense: var(--color-expense);
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-strong);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "ss01";
+  }
+
+  ::selection {
+    background-color: var(--color-strong);
+    color: var(--color-canvas);
+  }
+}
