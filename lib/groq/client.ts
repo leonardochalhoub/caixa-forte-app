@@ -12,15 +12,17 @@ export function getGroqClient(): Groq | null {
   return cached
 }
 
-// Model defaults tuned for Groq's free-tier rate limits:
-//   • parser  — llama-3.1-8b-instant: ~5× the TPM headroom of 70b,
-//               plenty of quality for the structured JSON extraction.
-//   • chat    — llama-3.3-70b-versatile: prose quality matters for the
-//               trend explainer so we keep the bigger model here.
-//   • whisper — speech-to-text, only model that makes sense.
-// Override any via env if throughput needs shift.
+// Model defaults:
+//   • parser  — llama-3.3-70b-versatile: higher accuracy on our structured
+//               JSON extraction prompt (which includes dozens of categories
+//               and accounts). 8B was dropping fields / malforming JSON on
+//               real prompts, breaking Zod validation.
+//   • chat    — llama-3.3-70b-versatile: prose quality on trend explainer.
+//   • whisper — speech-to-text.
+// Retry/fallback in parseTransaction demotes to 8B on 429 only, never
+// as the primary call.
 export const GROQ_MODELS = {
   chat: process.env.GROQ_CHAT_MODEL ?? "llama-3.3-70b-versatile",
-  parser: process.env.GROQ_PARSER_MODEL ?? "llama-3.1-8b-instant",
+  parser: process.env.GROQ_PARSER_MODEL ?? "llama-3.3-70b-versatile",
   whisper: process.env.GROQ_WHISPER_MODEL ?? "whisper-large-v3",
 } as const

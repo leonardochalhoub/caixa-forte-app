@@ -13,12 +13,12 @@ export class ParserError extends Error {
   }
 }
 
-// Fallback parser model used when the primary 8b-instant hits 429 on all
-// three retries. 70b-versatile has a separate per-minute budget so it can
-// absorb the overflow when 8b is saturated, at the cost of a bit more
-// latency. Override via GROQ_PARSER_FALLBACK_MODEL.
+// Fallback parser model used only when the primary (70b-versatile) hits
+// 429 on all three retries. 8b-instant has its own per-minute budget so
+// it can absorb overflow when 70b is saturated. Quality dips slightly
+// but it's a last resort. Override via GROQ_PARSER_FALLBACK_MODEL.
 const FALLBACK_PARSER_MODEL =
-  process.env.GROQ_PARSER_FALLBACK_MODEL ?? "llama-3.3-70b-versatile"
+  process.env.GROQ_PARSER_FALLBACK_MODEL ?? "llama-3.1-8b-instant"
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
