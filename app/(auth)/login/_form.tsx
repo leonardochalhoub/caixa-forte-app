@@ -37,10 +37,18 @@ export function LoginForm() {
       if (typeof window !== "undefined") {
         window.localStorage.setItem(EMAIL_STORAGE_KEY, email)
       }
-      await recordLoginAction().catch(() => {})
+      // Telemetry is best-effort — never let it block the navigation.
+      void recordLoginAction().catch(() => {})
       toast.success("Bem-vindo de volta!")
-      router.push("/app")
-      router.refresh()
+      // Hard reload instead of router.push so the server-rendered /app
+      // route sees the freshly-set session cookie. Soft navigation can
+      // race the cookie and bounce the user back to /login.
+      if (typeof window !== "undefined") {
+        window.location.assign("/app")
+      } else {
+        router.push("/app")
+        router.refresh()
+      }
     })
   }
 
