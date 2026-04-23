@@ -136,9 +136,18 @@ export default async function DREPage({
       .toLowerCase()
     return n.includes("saldo inicial") || n.includes("saldo-inicial")
   }
+  // Exclui tx em cartão de crédito — charges no cartão não são "saída"
+  // real até a fatura ser paga (= reduz disponibilidade). Mesma regra
+  // do hero/Home pra DRE bater com o KPI de "Saída do mês".
+  const creditAccountIds = new Set(
+    (accounts ?? [])
+      .filter((a) => (a as { type?: string }).type === "credit")
+      .map((a) => a.id as string),
+  )
   const txs = ((txsRaw ?? []) as Tx[])
     .filter((t) => !t.is_transfer)
     .filter((t) => !isOpeningBalance(t.merchant))
+    .filter((t) => !creditAccountIds.has(t.account_id))
   const cats = (catsRaw ?? []) as CategoryRow[]
   const catById = new Map(cats.map((c) => [c.id, c]))
   const formalIncomeIds = new Set(
