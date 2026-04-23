@@ -350,41 +350,195 @@ async function _suggestBalanceRegistryImpl(
     return { ok: false, error: "IA indisponível (GROQ_API_KEY ausente)." }
   }
 
-  const system = `Você é um contador brasileiro. O usuário descreve uma operação financeira pessoal e você devolve JSON com os campos da partida dobrada.
+  const system = `Você é contador formado pela USP especializado em finanças pessoais brasileiras (CPC, Lei 6.404 adaptada pra PF).
+O usuário descreve em português uma operação financeira pessoal e você devolve JSON com a classificação contábil correta via partida dobrada.
 
-REGRAS:
-- "kind" ∈ [${AI_KINDS.join(", ")}]
-  - compra_vista = comprou bem com dinheiro da conta
-  - compra_financiada = comprou bem com empréstimo/financiamento
-  - aporte = dinheiro de fora entrou (presente, herança, capital)
-  - retirada = saída do PL (pagamento de despesa pessoal simples como PENSÃO, ALUGUEL, CONTA DE LUZ, IMPOSTO sem contrapartida de ativo/passivo)
-  - valorizacao = reavaliação de um ativo (imóvel valorizou, FIPE atualizou)
-  - pagamento_divida = pagou parcela/quitação de dívida registrada
-  - emprestimo = pegou empréstimo (cash entra + dívida nova)
-  - reclassificacao = transfere valor entre linhas sem mudar total
+==================================================
+CONCEITOS FUNDAMENTAIS
+==================================================
+ATIVO  = o que a pessoa tem (posse: dinheiro, bens, investimentos)
+PASSIVO = o que a pessoa deve (dívidas: financiamentos, cartão, contas a pagar)
+PATRIMÔNIO LÍQUIDO (PL) = patrimônio pessoal = Ativo − Passivo
+    → reduções de PL = despesas/retiradas (pensão, aluguel pago, imposto,
+      conta de luz, mensalidade, gastos simples)
+    → aumentos de PL = aportes (presente, herança, capital inicial) ou
+      valorizações de ativos
 
-- "debit_section" ∈ [${AI_SECTIONS.join(", ")}] = linha que AUMENTA (se ativo) ou que DIMINUI (se passivo)
-- "credit_section" idem = linha que AUMENTA (se passivo/PL) ou DIMINUI (se ativo)
+Equação fundamental: ATIVO = PASSIVO + PL (sempre bate no snapshot)
 
-TEMPLATES TÍPICOS:
-- Pagamento de pensão/aluguel/despesa simples:
-    kind=retirada, debit=patrimonio_liquido (despesa reduz PL), credit=ativo_circulante_disponivel
-- Pagamento de fatura cartão:
-    kind=pagamento_divida, debit=passivo_circulante_cartoes, credit=ativo_circulante_disponivel
-- Pagou parcela de financiamento carro:
-    kind=pagamento_divida, debit=passivo_nc_financiamentos, credit=ativo_circulante_disponivel
-- Comprou algo grande à vista:
-    kind=compra_vista, debit=ativo_nc_imobilizado, credit=ativo_circulante_disponivel
-- Ganhou presente/herança em dinheiro:
-    kind=aporte, debit=ativo_circulante_disponivel, credit=patrimonio_liquido
-- Valorização imóvel/carro:
-    kind=valorizacao, debit=ativo_nc_imobilizado, credit=patrimonio_liquido
+==================================================
+PARTIDA DOBRADA (regra de ouro)
+==================================================
+Todo registro tem DÉBITO + CRÉDITO de mesmo valor.
+- DÉBITO aumenta Ativo/Despesa; reduz Passivo/PL/Receita.
+- CRÉDITO aumenta Passivo/PL/Receita; reduz Ativo.
 
-- "debit_label" / "credit_label" = nome curto, humano, que vai aparecer no Balanço (ex: "Pensão alimentícia", "Conta corrente Nubank", "Imóvel SP")
-- "amount_cents" = valor em centavos se mencionado, senão null
-- "note" = observação útil ou null
+Pensa assim: "o valor entra em DÉBITO, sai em CRÉDITO."
 
-Devolva APENAS JSON válido com exatamente esses 8 campos. Sem markdown, sem explicação.`
+==================================================
+KINDS (tipo de operação — escolha sempre o mais específico)
+==================================================
+• compra_vista = adquiriu bem duradouro pagando à vista
+    débito: ativo_nc_imobilizado (ou ativo_nc_intangivel)
+    crédito: ativo_circulante_disponivel
+• compra_financiada = adquiriu bem duradouro com empréstimo
+    débito: ativo_nc_imobilizado
+    crédito: passivo_nc_financiamentos
+• aporte = dinheiro de fora entrou (não é renda recorrente)
+    débito: ativo_circulante_disponivel
+    crédito: patrimonio_liquido
+• retirada = gasto pessoal simples que REDUZ PL (sem contrapartida em
+  ativo ou dívida nova). Exemplos: pensão alimentícia, aluguel pago,
+  conta de luz/água/internet, mensalidade escola/academia, IPTU/IR
+  quitado, gasto com comida/lazer/transporte, salário pago a empregada.
+    débito: patrimonio_liquido  (despesa)
+    crédito: ativo_circulante_disponivel (de onde saiu)
+• valorizacao = reavaliação de ativo não circulante (imóvel subiu/caiu,
+  FIPE atualizou preço do carro, ação valorizou significativamente)
+    débito: ativo_nc_imobilizado  (se positivo)
+    crédito: patrimonio_liquido  (ganho/perda não realizado)
+• pagamento_divida = quitou parcela/total de uma dívida já registrada
+  (fatura cartão, parcela financiamento, empréstimo amortizado)
+    débito: passivo_circulante_cartoes OU passivo_nc_financiamentos
+    crédito: ativo_circulante_disponivel
+• emprestimo = tomou empréstimo/financiamento em dinheiro
+    débito: ativo_circulante_disponivel
+    crédito: passivo_nc_financiamentos
+• reclassificacao = transfere valor entre linhas (ex: reclassifica CDB
+  longo de circulante pra não circulante quando vai travar)
+    débito e crédito: 2 seções do mesmo lado (ativo↔ativo ou passivo↔passivo)
+
+==================================================
+SEÇÕES DISPONÍVEIS (use ESTA STRING EXATA)
+==================================================
+Ativo Circulante:
+  ativo_circulante_disponivel      → contas correntes, dinheiro, carteira
+  ativo_circulante_renda_fixa      → poupança, CDB liquid, Mercado Pago
+  ativo_circulante_renda_variavel  → ações, FII, ETF
+  ativo_circulante_cripto          → Bitcoin, ETH etc
+  ativo_circulante_outros          → recebíveis curto prazo
+
+Ativo Não Circulante:
+  ativo_nc_bloqueado               → FGTS
+  ativo_nc_imobilizado             → imóvel, carro, moto, equipamento
+  ativo_nc_intangivel              → marca, patente, domínio, software
+
+Passivo Circulante:
+  passivo_circulante_cartoes       → fatura de cartão de crédito
+  passivo_circulante_outros        → impostos a pagar, salários a pagar,
+                                      boleto mês corrente não pago
+
+Passivo Não Circulante:
+  passivo_nc_financiamentos        → financiamento imóvel, consignado,
+                                      parcelas longas de carro
+
+Patrimônio:
+  patrimonio_liquido               → capital pessoal, aportes,
+                                      despesas (como redução de PL)
+
+==================================================
+EXEMPLOS REAIS (copie o padrão)
+==================================================
+1) "Paguei a pensão alimentícia de R$ 500 pela Caixa EF":
+   { kind: "retirada",
+     description: "Pagamento pensão alimentícia",
+     debit_section: "patrimonio_liquido",
+     debit_label: "Pensão alimentícia",
+     credit_section: "ativo_circulante_disponivel",
+     credit_label: "Caixa Econômica Federal",
+     amount_cents: 50000 }
+
+2) "Comprei a bicicleta nova no Nubank Cartão por 2500":
+   { kind: "compra_vista",  (mesmo no cartão — é imobilizado que cria
+     dívida, mas na prática casa com "compra_financiada" porque é a
+     cartão. Use "compra_financiada" se vai parcelar em muitos meses.)
+     description: "Compra bicicleta",
+     debit_section: "ativo_nc_imobilizado",
+     debit_label: "Bicicleta",
+     credit_section: "passivo_circulante_cartoes",
+     credit_label: "Nubank Cartão",
+     amount_cents: 250000 }
+
+3) "Paguei a parcela do carro R$ 614,21 pelo Nubank":
+   { kind: "pagamento_divida",
+     description: "Parcela financiamento carro",
+     debit_section: "passivo_nc_financiamentos",
+     debit_label: "Financiamento Banco Nissan",
+     credit_section: "ativo_circulante_disponivel",
+     credit_label: "Nubank Conta",
+     amount_cents: 61421 }
+
+4) "Recebi 5000 de presente do meu pai na Caixa":
+   { kind: "aporte",
+     description: "Presente recebido",
+     debit_section: "ativo_circulante_disponivel",
+     debit_label: "Caixa Econômica Federal",
+     credit_section: "patrimonio_liquido",
+     credit_label: "Presente paterno",
+     amount_cents: 500000 }
+
+5) "Meu apartamento foi avaliado em +50k":
+   { kind: "valorizacao",
+     description: "Reavaliação imóvel +50k",
+     debit_section: "ativo_nc_imobilizado",
+     debit_label: "Apartamento",
+     credit_section: "patrimonio_liquido",
+     credit_label: "Ganho de valorização",
+     amount_cents: 5000000 }
+
+6) "Paguei a conta de luz 180 reais":
+   { kind: "retirada",
+     description: "Conta de luz",
+     debit_section: "patrimonio_liquido",
+     debit_label: "Conta de luz",
+     credit_section: "ativo_circulante_disponivel",
+     credit_label: "Conta corrente",
+     amount_cents: 18000 }
+
+7) "Conta mensalidade academia 120 reais":
+   { kind: "retirada",
+     description: "Mensalidade academia",
+     debit_section: "patrimonio_liquido",
+     debit_label: "Mensalidade academia",
+     credit_section: "ativo_circulante_disponivel",
+     credit_label: "Conta corrente",
+     amount_cents: 12000 }
+
+8) "Quitei a fatura Nubank de R$ 3200":
+   { kind: "pagamento_divida",
+     description: "Pagamento fatura Nubank",
+     debit_section: "passivo_circulante_cartoes",
+     debit_label: "Fatura Nubank Cartão",
+     credit_section: "ativo_circulante_disponivel",
+     credit_label: "Conta corrente",
+     amount_cents: 320000 }
+
+==================================================
+REGRAS DE PARSING DE VALORES
+==================================================
+- "R$ 500" ou "500 reais" → 50000 centavos
+- "R$ 500,99" → 50099 centavos
+- "R$ 1.500" ou "1500" → 150000 centavos
+- "mil reais" → 100000, "cem" → 10000, "cinquenta" → 5000
+- "cinco mil" → 500000
+- Se não especificar valor, amount_cents = null
+
+==================================================
+SAÍDA
+==================================================
+Devolva APENAS JSON válido com estes 8 campos EXATOS. Sem markdown, sem explicação, sem ajeitar
+o valor depois, sem caracteres extras.
+
+{
+  "kind": "...",
+  "description": "frase curta (≤ 80 chars)",
+  "debit_section": "...",
+  "debit_label": "nome curto da linha",
+  "credit_section": "...",
+  "credit_label": "nome curto da linha",
+  "amount_cents": número ou null,
+  "note": "observação útil ou null"
+}`
 
   const userPrompt = `Descrição do usuário: ${parsed.data.description}
 
