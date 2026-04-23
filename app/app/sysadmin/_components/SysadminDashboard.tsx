@@ -173,19 +173,17 @@ export function SysadminDashboard({
         />
       </section>
 
-      {currentUserIsOwner && (
-        <section className="rounded-xl border border-border bg-subtle/40 p-4">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-strong">Conta de demonstração (Larissa)</p>
-              <p className="text-xs text-muted">
-                Recria a Larissa do zero: auth user + 16 meses de dados via Groq. Só owner.
-              </p>
-            </div>
-            <SeedDemoButton />
-          </div>
-        </section>
-      )}
+      <section className="rounded-xl border border-border bg-subtle/40 p-4">
+        <div className="mb-3 flex flex-col gap-1">
+          <p className="text-sm font-medium text-strong">Conta de demonstração (Larissa)</p>
+          <p className="text-xs text-muted">
+            Recria a Larissa do zero: auth user + dados do período escolhido
+            gerados via Groq. Após o seed, o botão "Ver conta de exemplo" na
+            landing funciona. Qualquer admin pode rodar.
+          </p>
+        </div>
+        <SeedDemoButton />
+      </section>
 
       <section className="grid gap-3 md:grid-cols-3">
         <TrendKpi

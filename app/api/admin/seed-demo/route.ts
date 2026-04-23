@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { getUser, isOwner } from "@/lib/auth"
+import { getUser, isAdminish } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -11,7 +11,55 @@ const DEMO_NAME = "Larissa Oliveira"
 
 type SeedLog = { step: string; detail: string; ok: boolean }
 
-export async function POST() {
+type RangeKey = "full" | "2025" | "2026" | "q1-2026" | "last-12m"
+
+function chunksForRange(range: RangeKey): [string, string][] {
+  const pair = (a: string, b: string): [string, string] => [a, b]
+  switch (range) {
+    case "2025":
+      return [
+        pair("2025-01", "2025-02"),
+        pair("2025-03", "2025-04"),
+        pair("2025-05", "2025-06"),
+        pair("2025-07", "2025-08"),
+        pair("2025-09", "2025-10"),
+        pair("2025-11", "2025-12"),
+      ]
+    case "2026":
+      return [pair("2026-01", "2026-02"), pair("2026-03", "2026-04")]
+    case "q1-2026":
+      return [pair("2026-01", "2026-02"), pair("2026-03", "2026-03")]
+    case "last-12m": {
+      const now = new Date()
+      const months: string[] = []
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+        months.push(
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        )
+      }
+      const out: [string, string][] = []
+      for (let i = 0; i < months.length; i += 2) {
+        out.push(pair(months[i]!, months[i + 1] ?? months[i]!))
+      }
+      return out
+    }
+    case "full":
+    default:
+      return [
+        pair("2025-01", "2025-02"),
+        pair("2025-03", "2025-04"),
+        pair("2025-05", "2025-06"),
+        pair("2025-07", "2025-08"),
+        pair("2025-09", "2025-10"),
+        pair("2025-11", "2025-12"),
+        pair("2026-01", "2026-02"),
+        pair("2026-03", "2026-04"),
+      ]
+  }
+}
+
+export async function POST(req: Request) {
   const logs: SeedLog[] = []
   const note = (step: string, detail: string, ok = true) =>
     logs.push({ step, detail, ok })
@@ -24,13 +72,15 @@ export async function POST() {
         { status: 401 },
       )
     }
-    const ownerOk = await isOwner()
-    if (!ownerOk) {
+    const isAdmin = await isAdminish()
+    if (!isAdmin) {
       return NextResponse.json(
-        { ok: false, error: "Apenas owner pode re-semear." },
+        { ok: false, error: "Apenas admin/owner pode re-semear." },
         { status: 403 },
       )
     }
+    const body = (await req.json().catch(() => ({}))) as { range?: RangeKey }
+    const range: RangeKey = body.range ?? "full"
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -175,16 +225,8 @@ Nubank Conta (~R$1.200), Nubank Renda Fixa (~R$6.000), Nubank Cripto (~R$1.500),
     const catList = (cats ?? [])
       .map((c) => `- ${c.name} (${c.kind}, id: ${c.id})`)
       .join("\n")
-    const chunks: [string, string][] = [
-      ["2025-01", "2025-02"],
-      ["2025-03", "2025-04"],
-      ["2025-05", "2025-06"],
-      ["2025-07", "2025-08"],
-      ["2025-09", "2025-10"],
-      ["2025-11", "2025-12"],
-      ["2026-01", "2026-02"],
-      ["2026-03", "2026-04"],
-    ]
+    const chunks = chunksForRange(range)
+    note("range", `${range} → ${chunks.length} chunks`)
     const txSys = `Gerador de transações realistas de finanças pessoais brasileiras.
 JSON { "transactions": [...] }. Cada tx:
 { account_id, category_id (pode ser null), type, amount_cents, occurred_on, paid_at, merchant, is_transfer: false }
