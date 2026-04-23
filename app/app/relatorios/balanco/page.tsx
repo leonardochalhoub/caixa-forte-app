@@ -185,9 +185,18 @@ export default async function BalancoPage({
   const accs = (accounts ?? []) as AccountRow[]
   const txs = (txsRaw ?? []) as Tx[]
 
+  const normalizeStr = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const bankKeyOf = (name: string): string => {
+    const cleaned = name.replace(/cart[ãa]o.*/i, "").trim()
+    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
+  }
+
   // Saldo por conta na data do snapshot.
   // Regra: não-cartão conta só paid_at !== null e paid_at <= snapshot.
-  // Cartão conta TODAS as tx até a data (charges = dívida desde o swipe).
+  // Cartão conta TODAS as tx até a data (charges = dívida desde o swipe)
+  // + lump-sums detectados em outras contas (merchant "<banco> cartão"
+  // agendado) até a data.
   function balanceAt(acc: AccountRow, cutoffIso: string): number {
     const opening = Number(acc.opening_balance_cents ?? 0)
     const isCredit = acc.type === "credit"
@@ -201,6 +210,22 @@ export default async function BalancoPage({
       }
       flow +=
         t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)
+    }
+    if (isCredit) {
+      const bankKey = bankKeyOf(acc.name)
+      if (bankKey) {
+        for (const t of txs) {
+          if (t.account_id === acc.id) continue
+          if (t.is_transfer) continue
+          if (t.type !== "expense") continue
+          if (t.paid_at) continue // já pago, não é dívida na data
+          if (t.occurred_on > cutoffIso) continue
+          const m = normalizeStr(t.merchant ?? "")
+          if (!m.includes("cartao")) continue
+          if (!m.includes(bankKey)) continue
+          flow -= Number(t.amount_cents) // aumenta dívida
+        }
+      }
     }
     return opening + flow
   }
@@ -289,22 +314,44 @@ export default async function BalancoPage({
     timeZone: "America/Sao_Paulo",
   })
 
-  // Meses disponíveis — últimos 24 meses + anos
-  const periodOptions: { value: string; label: string }[] = []
+  // Períodos disponíveis = meses + anos que têm alguma tx real OU
+  // algum ajuste manual OU é o mês atual (sempre acessível pra
+  // planejamento futuro).
+  const activeMonths = new Set<string>()
+  const activeYears = new Set<number>()
+  for (const t of txs) {
+    activeMonths.add(t.occurred_on.slice(0, 7))
+    activeYears.add(Number(t.occurred_on.slice(0, 4)))
+  }
+  for (const a of adjustments) {
+    if (a.period.startsWith("mensal:")) {
+      const ym = a.period.slice(7)
+      activeMonths.add(ym)
+      activeYears.add(Number(ym.slice(0, 4)))
+    } else if (a.period.startsWith("anual:")) {
+      activeYears.add(Number(a.period.slice(6)))
+    }
+  }
   const today = new Date()
-  for (let i = 0; i < 24; i++) {
-    const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
-    const y = d.getFullYear()
-    const m = d.getMonth() + 1
-    periodOptions.push({
-      value: `mensal:${y}-${String(m).padStart(2, "0")}`,
-      label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
+  const currentYm = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`
+  activeMonths.add(currentYm)
+  activeYears.add(today.getFullYear())
+
+  const periodOptions = [...activeMonths]
+    .sort()
+    .reverse()
+    .map((ym) => {
+      const [yStr, mStr] = ym.split("-")
+      const y = Number(yStr)
+      const m = Number(mStr)
+      return {
+        value: `mensal:${ym}`,
+        label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
+      }
     })
-  }
-  const yearOptions: { value: string; label: string }[] = []
-  for (let y = today.getFullYear(); y >= today.getFullYear() - 3; y--) {
-    yearOptions.push({ value: `anual:${y}`, label: `Ano ${y}` })
-  }
+  const yearOptions = [...activeYears]
+    .sort((a, b) => b - a)
+    .map((y) => ({ value: `anual:${y}`, label: `Ano ${y}` }))
 
   const xlsxRows: (string | number)[][] = [
     ["Balanço Contábil", period.label, "", "Snapshot", snapshotDate],
