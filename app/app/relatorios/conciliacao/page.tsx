@@ -792,7 +792,7 @@ export default async function ConciliacaoPage({
                         running += delta
                         return { t, delta, runningAt: running }
                       })
-                      return [...withRunning].reverse().map(({ t, delta, runningAt }) => {
+                      return withRunning.map(({ t, delta, runningAt }) => {
                         const isIncome = delta >= 0
                         const hhmm = t.created_at
                           ? formatInSaoPaulo(new Date(t.created_at), "HH:mm")
