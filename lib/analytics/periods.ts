@@ -60,14 +60,15 @@ export interface BucketableTx {
 /**
  * Bucketize por mês. Regras:
  * - Transferências (is_transfer=true) nunca contam nas KPIs.
- * - Incomes só contam se category_id estiver em formalIncomeCategoryIds.
- *   Saldo inicial, Ajuste, Reembolso ficam fora.
+ * - TODAS as receitas (formais + de capital) entram em incomeCents —
+ *   coerente com o DRE. O set formalIncomeCategoryIds é mantido na
+ *   assinatura por compat; não filtra mais.
  * - Expenses não-transfer todos contam.
  */
 export function bucketizeTransactions(
   transactions: BucketableTx[],
   slots: MonthSlot[],
-  formalIncomeCategoryIds: Set<string>,
+  _formalIncomeCategoryIds: Set<string>,
 ): MonthlyTotals[] {
   const empty = new Map<string, MonthlyTotals>()
   for (const s of slots) {
@@ -85,9 +86,7 @@ export function bucketizeTransactions(
     const bucket = empty.get(monthKey)
     if (!bucket) continue
     if (tx.type === "income") {
-      if (tx.category_id && formalIncomeCategoryIds.has(tx.category_id)) {
-        bucket.incomeCents += Number(tx.amount_cents)
-      }
+      bucket.incomeCents += Number(tx.amount_cents)
     } else {
       bucket.expenseCents += Number(tx.amount_cents)
     }
