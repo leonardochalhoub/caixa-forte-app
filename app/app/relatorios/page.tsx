@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowRight, CheckSquare, FileText, TrendingUp, Tags } from "lucide-react"
+import { ArrowRight, CheckSquare, FileText, Scale, TrendingUp, Tags } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 export const dynamic = "force-dynamic"
@@ -27,6 +27,14 @@ const REPORTS = [
     description:
       "Ranking de categorias e subcategorias no período escolhido, com percentual do total e barras visuais. Exporta PDF e XLSX.",
     icon: Tags,
+    status: "disponível",
+  },
+  {
+    href: "/app/relatorios/balanco",
+    title: "Balanço Contábil",
+    description:
+      "Posição patrimonial em modelo brasileiro (Ativo / Passivo / PL). Mensal ou anual. Contabilidade ≠ Fluxo — o Balanço é retrato, o fluxo é filme. Exporta PDF e XLSX.",
+    icon: Scale,
     status: "disponível",
   },
 ] as const
