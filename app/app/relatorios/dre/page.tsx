@@ -238,11 +238,16 @@ export default async function DREPage({
   const receitaCapital = receitasArr
     .filter((r) => !r.isFormal)
     .reduce((s, r) => s + r.totalCents, 0)
-  const receitaTotal = receitaTrabalho + receitaCapital
+
+  // Headline "Receita total" = só receita operacional (trabalho), mesma
+  // regra do hero/Home: capital (dividendos, cashback) é não-operacional
+  // e entra separado pra não poluir a margem operacional.
+  const receitaTotal = receitaTrabalho
 
   const despesaTotal = despesasArr.reduce((s, d) => s + d.totalCents, 0)
   const resultado = receitaTotal - despesaTotal
   const margem = receitaTotal > 0 ? (resultado / receitaTotal) * 100 : 0
+  const resultadoLiquido = resultado + receitaCapital
 
   // Meses disponíveis
   const activeMonths = new Set<string>()
