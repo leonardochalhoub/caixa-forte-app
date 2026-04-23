@@ -136,10 +136,15 @@ export async function POST(req: Request) {
     note("wipe", "dados antigos removidos")
 
     // --- GROQ ---
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    // Groq free tier: 6000 TPM no 8b, ~30k TPM no 70b. Cada chunk
+    // consome ~4k tokens entrada + ~4k saída. Pausa entre calls
+    // pra não estourar. Retry com backoff em 429.
     async function callGroq(
       system: string,
       userMsg: string,
       model = "llama-3.3-70b-versatile",
+      retries = 0,
     ): Promise<Record<string, unknown>> {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
@@ -155,13 +160,30 @@ export async function POST(req: Request) {
           ],
           response_format: { type: "json_object" },
           temperature: 0.7,
-          max_tokens: 4096,
+          max_tokens: 3000,
         }),
       })
-      if (!res.ok) {
-        if (res.status === 429 && model !== "llama-3.1-8b-instant") {
-          return callGroq(system, userMsg, "llama-3.1-8b-instant")
+      if (res.status === 429) {
+        // Primeiro 429 no 70b → tenta 8b uma vez
+        if (model === "llama-3.3-70b-versatile" && retries === 0) {
+          note("groq-429", "70b rate-limited → tentando 8b")
+          await sleep(3000)
+          return callGroq(system, userMsg, "llama-3.1-8b-instant", 0)
         }
+        // Retry com backoff (parse Retry-After se houver)
+        if (retries < 3) {
+          const retryAfter = res.headers.get("retry-after")
+          const waitSec = retryAfter ? Number(retryAfter) : 20 * (retries + 1)
+          const waitMs = Math.min(60000, Math.max(15000, waitSec * 1000))
+          note("groq-429", `aguardando ${Math.round(waitMs / 1000)}s e retry ${retries + 1}/3`)
+          await sleep(waitMs)
+          return callGroq(system, userMsg, model, retries + 1)
+        }
+        throw new Error(
+          `Groq 429 persistente após 3 retries. Aguarde 1-2 min e tente de novo (ou use range menor).`,
+        )
+      }
+      if (!res.ok) {
         throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 200)}`)
       }
       const j = (await res.json()) as {
@@ -236,9 +258,10 @@ Merchant realista pt-BR. Use APENAS os UUIDs reais fornecidos.`
     const accIds = new Set((accs ?? []).map((a) => a.id))
     const catIds = new Set((cats ?? []).map((c) => c.id))
     const allTxs: Record<string, unknown>[] = []
-    for (const [s, e] of chunks) {
-      const txUser = `Larissa Oliveira, analista marketing SP. 25-35 tx de ${s} a ${e}.
-Por mês: 1 salário (~R$ 7.500-9.000, dia 5, Nubank Conta), aluguel ~R$2.200 dia 10, 3-5 mercados (R$80-300), 4-8 Uber/99 (R$15-60), 2-4 iFood (R$30-120), Netflix R$55, Spotify R$22, academia R$130, 1-2 compras cartão (Amazon/Shopee/Zara direto no Nubank Cartão), ocasional freelance/saúde/lazer.
+    for (let i = 0; i < chunks.length; i++) {
+      const [s, e] = chunks[i]!
+      const txUser = `Larissa Oliveira, analista marketing SP. 18-22 tx de ${s} a ${e}.
+Por mês: 1 salário (~R$ 7.500-9.000, dia 5, Nubank Conta), aluguel ~R$2.200 dia 10, 3-4 mercados (R$80-300), 3-5 Uber/99 (R$15-60), 2-3 iFood (R$30-120), Netflix R$55, Spotify R$22, academia R$130, 1 compra cartão (Amazon/Shopee/Zara direto no Nubank Cartão), ocasional freelance/saúde/lazer.
 Mês passado: 95% paid. Mês corrente (Abr/2026): 70% pagas, 30% agendadas futuras.
 Incluir 1 lump-sum MENSAL "Nubank Cartão" no Nubank Conta, unpaid, occurred_on dia 25 do mês, valor R$ 600-1400.
 CONTAS:
@@ -248,6 +271,8 @@ ${catList}`
       const batch = ((await callGroq(txSys, txUser)).transactions as unknown[]) ?? []
       allTxs.push(...(batch as Record<string, unknown>[]))
       note("groq", `chunk ${s}..${e}: ${batch.length} tx`)
+      // Pacing: 10s entre chunks pra não estourar TPM do Groq.
+      if (i < chunks.length - 1) await sleep(10000)
     }
     const txPayload = allTxs
       .filter((t) => {
