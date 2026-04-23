@@ -295,6 +295,14 @@ export default async function ConciliacaoPage({
         </h2>
         <div className="overflow-x-auto rounded-xl border border-border">
           <table className="w-full text-sm">
+            <colgroup>
+              <col style={{ width: "28%" }} />
+              <col style={{ width: "14.4%" }} />
+              <col style={{ width: "14.4%" }} />
+              <col style={{ width: "14.4%" }} />
+              <col style={{ width: "14.4%" }} />
+              <col style={{ width: "14.4%" }} />
+            </colgroup>
             <thead className="bg-subtle text-xs uppercase tracking-wider text-muted">
               <tr>
                 <th className="px-3 py-2 text-left">Conta</th>
@@ -430,6 +438,12 @@ export default async function ConciliacaoPage({
                 </p>
               ) : (
                 <table className="w-full text-xs">
+                  <colgroup>
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "52%" }} />
+                    <col style={{ width: "17%" }} />
+                    <col style={{ width: "17%" }} />
+                  </colgroup>
                   <thead className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
                     <tr>
                       <th className="py-1.5 text-left">Data</th>

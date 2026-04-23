@@ -79,31 +79,53 @@
   }
 }
 
-/* Print layout — for PDF export from financial reports.
-   Hide chrome, force white background + black ink for legibility,
-   keep tables from breaking mid-row. */
+/* Print layout — tuned for A4 (210×297mm).
+   Usable area with 15mm × 12mm margins = 186mm × 267mm.
+   Target 10pt body so tables (6 cols, R$ X.XXX,XX values) fit without wrap.
+   Keeps tables from cutting mid-row, repeats headers across pages,
+   forces black ink + light grey dividers for laser printers. */
 @media print {
   html,
   body {
     background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-size: 10pt;
+    line-height: 1.35;
   }
-  header,
-  footer,
-  nav,
-  .no-print {
+  .no-print,
+  nav {
     display: none !important;
   }
   main {
     max-width: 100% !important;
+    margin: 0 !important;
     padding: 0 !important;
   }
   .report-root {
     color: #000 !important;
+    font-size: 10pt;
   }
   .report-root * {
     color: #000 !important;
     background: transparent !important;
-    border-color: #333 !important;
+    border-color: #9ca3af !important;
+    box-shadow: none !important;
+  }
+  /* Compact font scale — screen "text-xs"/"text-sm" look too small on paper. */
+  .report-root .text-\[10px\],
+  .report-root .text-\[11px\],
+  .report-root .text-xs {
+    font-size: 8pt !important;
+  }
+  .report-root .text-sm {
+    font-size: 10pt !important;
+  }
+  .report-root .text-base {
+    font-size: 11pt !important;
+  }
+  .report-root .text-3xl {
+    font-size: 22pt !important;
   }
   .report-root .text-income {
     color: #065f46 !important;
@@ -111,20 +133,62 @@
   .report-root .text-expense {
     color: #7f1d1d !important;
   }
+  /* Tables: repeat head on every page, avoid breaking a row. */
   .report-root table {
+    width: 100%;
+    border-collapse: collapse;
     break-inside: auto;
   }
   .report-root thead {
-    background: #f4f4f5 !important;
+    display: table-header-group;
+    background: #e5e7eb !important;
+  }
+  .report-root tfoot {
+    display: table-row-group;
+    background: #e5e7eb !important;
   }
   .report-root tr {
     page-break-inside: avoid;
   }
+  .report-root th,
+  .report-root td {
+    padding: 4pt 6pt !important;
+    vertical-align: middle;
+  }
+  /* Prova matemática box + each account card = keep together if possible. */
   .report-root .avoid-break {
     page-break-inside: avoid;
   }
+  .report-root section {
+    page-break-inside: auto;
+  }
+  .report-root section > h2 {
+    page-break-after: avoid;
+  }
+  /* Force PDF viewer to render grey borders instead of collapsing to none. */
+  .report-root .border,
+  .report-root .border-t,
+  .report-root .border-b,
+  .report-root .border-l,
+  .report-root .border-r,
+  .report-root .border-t-2,
+  .report-root .border-b-2 {
+    border-color: #9ca3af !important;
+  }
+  /* Removes gradients/tinted cards from the print — they get washed out. */
+  .report-root [class*="bg-gradient"],
+  .report-root .bg-subtle {
+    background: #f4f4f5 !important;
+  }
+  /* Hide browser links hover underlines etc. */
+  .report-root a {
+    text-decoration: none !important;
+  }
   @page {
-    margin: 18mm 14mm;
-    size: A4;
+    size: A4 portrait;
+    margin: 15mm 12mm;
+  }
+  @page :first {
+    margin-top: 18mm;
   }
 }

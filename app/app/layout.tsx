@@ -30,7 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
-      <header className="border-b border-border">
+      <header className="no-print border-b border-border">
         <div className="flex h-14 items-center justify-between px-4 md:h-16 md:px-6">
           <Link
             href="/app"

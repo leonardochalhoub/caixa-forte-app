@@ -12,7 +12,7 @@ const LINKEDIN_URL =
 
 export function Footer() {
   return (
-    <footer className="border-t border-border bg-canvas">
+    <footer className="no-print border-t border-border bg-canvas">
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-6 py-4 text-xs text-muted sm:flex-row">
         <div className="flex items-center gap-3">
           <span>
