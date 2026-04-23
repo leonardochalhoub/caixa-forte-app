@@ -199,7 +199,7 @@ export default async function BalancoPage({
   if (period.kind === "mensal") {
     const { data: allFipeRaw } = await untyped(supabase)
       .from("balance_adjustments")
-      .select("id, period, line_key, label, metadata")
+      .select("id, period, line_key, label, amount_cents, metadata")
       .eq("user_id", user.id)
       .eq("metadata->>source", "fipe")
     type FipeAdj = {
@@ -207,6 +207,7 @@ export default async function BalancoPage({
       period: string
       line_key: string
       label: string
+      amount_cents: number
       metadata: FipeMetadata
     }
     const allFipe = (allFipeRaw ?? []) as FipeAdj[]
@@ -238,25 +239,31 @@ export default async function BalancoPage({
     }> = []
     await Promise.all(
       [...templatesByKey.values()].map(async (t) => {
+        const [section] = t.line_key.split("::")
+        let priceCents = t.amount_cents
+        let note = `Valor herdado do último período (${t.period.replace("mensal:", "")}) — FIPE indisponível ou sem dados pro mês.`
+        let refMonth = t.metadata.last_reference_month
         try {
           const price = await fetchFipePrice(t.metadata)
-          const [section] = t.line_key.split("::")
-          newInserts.push({
-            user_id: user.id,
-            period: periodStr,
-            line_key: `${section}::custom:${Date.now()}:fipe-${t.metadata.fipe_code}`,
-            label: t.label,
-            amount_cents: price.priceCents,
-            note: `FIPE ${price.referenceMonth} · código ${t.metadata.fipe_code} · auto-atualizado ao abrir o período`,
-            metadata: {
-              ...t.metadata,
-              last_checked_at: new Date().toISOString(),
-              last_reference_month: price.referenceMonth,
-            },
-          })
+          priceCents = price.priceCents
+          note = `FIPE ${price.referenceMonth} · código ${t.metadata.fipe_code} · auto-atualizado ao abrir o período`
+          refMonth = price.referenceMonth
         } catch {
-          // silencia; FIPE pode estar fora do ar, balanço renderiza sem
+          // Fallback: mantém valor do último período conhecido
         }
+        newInserts.push({
+          user_id: user.id,
+          period: periodStr,
+          line_key: `${section}::custom:${Date.now()}:fipe-${t.metadata.fipe_code}`,
+          label: t.label,
+          amount_cents: priceCents,
+          note,
+          metadata: {
+            ...t.metadata,
+            last_checked_at: new Date().toISOString(),
+            last_reference_month: refMonth,
+          },
+        })
       }),
     )
     if (newInserts.length > 0) {
@@ -276,11 +283,16 @@ export default async function BalancoPage({
     const [section] = a.line_key.split("::")
     if (!section) continue
     const list = adjustmentsBySection.get(section) ?? []
+    const readonlySource =
+      (a.metadata as FipeMetadata | null)?.source === "fipe"
+        ? ("fipe" as const)
+        : null
     list.push({
       id: a.id,
       label: a.label,
       amount_cents: a.amount_cents,
       note: a.note,
+      readonly_source: readonlySource,
     })
     adjustmentsBySection.set(section, list)
   }
@@ -483,12 +495,12 @@ export default async function BalancoPage({
     timeZone: "America/Sao_Paulo",
   })
 
-  // Períodos disponíveis = meses + anos que têm alguma tx real OU
-  // algum ajuste manual OU é o mês atual (sempre acessível pra
-  // planejamento futuro).
+  // Períodos disponíveis = meses/anos com tx REAL (não transfer,
+  // senão "Saldo inicial" inflava meses vazios) + ajustes + mês atual.
   const activeMonths = new Set<string>()
   const activeYears = new Set<number>()
   for (const t of txs) {
+    if (t.is_transfer) continue
     activeMonths.add(t.occurred_on.slice(0, 7))
     activeYears.add(Number(t.occurred_on.slice(0, 4)))
   }
@@ -957,31 +969,36 @@ function AdjList({
         </p>
       )}
       <ul className="space-y-0.5 pl-7">
-        {items.map((a) => (
-          <li
-            key={a.id}
-            className="group relative flex items-baseline justify-between gap-3 text-[11px] text-muted"
-          >
-            <span className="flex min-w-0 flex-1 items-baseline gap-1">
-              <span>↳</span>
-              <span className="truncate">{a.label}</span>
-              {a.note && (
-                <span
-                  className="shrink-0 cursor-help text-[9px]"
-                  title={a.note}
-                >
-                  ⓘ
+        {items.map((a) => {
+          const readonly = a.readonly_source != null
+          return (
+            <li
+              key={a.id}
+              className="group relative flex items-baseline justify-between gap-3 text-[11px] text-muted"
+            >
+              <span className="flex min-w-0 flex-1 items-baseline gap-1">
+                <span>↳</span>
+                <span className="truncate">{a.label}</span>
+                {a.note && !readonly && (
+                  <span
+                    className="shrink-0 cursor-help text-[9px]"
+                    title={a.note}
+                  >
+                    ⓘ
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 font-mono tabular-nums">
+                {formatBRL(a.amount_cents)}
+              </span>
+              {!readonly && (
+                <span className="no-print absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <AdjustmentActions adjustment={a} />
                 </span>
               )}
-            </span>
-            <span className="shrink-0 font-mono tabular-nums">
-              {formatBRL(a.amount_cents)}
-            </span>
-            <span className="no-print absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-1 opacity-0 transition-opacity group-hover:opacity-100">
-              <AdjustmentActions adjustment={a} />
-            </span>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
     </>
   )

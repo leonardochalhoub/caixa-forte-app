@@ -26,6 +26,10 @@ export type Adjustment = {
   label: string
   amount_cents: number
   note: string | null
+  // Se vier de FIPE ou outra fonte automática, bloqueia edit/delete
+  // — o valor é gerenciado pelo auto-sync, editar à mão seria perdido
+  // na próxima renderização.
+  readonly_source?: "fipe" | null
 }
 
 export function AddLineButton({
