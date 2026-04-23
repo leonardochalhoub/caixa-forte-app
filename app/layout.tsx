@@ -17,9 +17,8 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Caixa Forte",
   description: "Controle financeiro pessoal — registre ganhos e gastos em segundos.",
-  icons: {
-    icon: "/favicon.ico",
-  },
+  // Next App Router detecta app/icon.svg automaticamente — sem icons
+  // explícito pra não sobrescrever com um /favicon.ico que não existe.
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
