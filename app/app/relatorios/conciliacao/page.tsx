@@ -215,10 +215,22 @@ export default async function ConciliacaoPage({
   const rows = accs.map((a) => {
     const own = allTx.filter((t) => t.account_id === a.id)
     const detectedLumpSums = detectLumpSumsForCard(a)
-    const mine = [...own, ...detectedLumpSums]
+    const isCredit = a.type === "credit"
+    // Cartão: lump-sum detectado É o total da fatura, já inclui os
+    // charges itemizados. Pra o saldo NÃO dar double-count, usamos
+    // o lump-sum (se existir) OU os itemizados, não os dois.
+    const mine = isCredit
+      ? detectedLumpSums.length > 0
+        ? [...own.filter((t) => false), ...detectedLumpSums] // só lump-sum
+        : own
+      : [...own, ...detectedLumpSums]
+    // Mas pra EXIBIR a lista no detalhamento (tela/PDF), queremos ver
+    // tudo — lump-sum e itemizados. Trackeamos separadamente.
+    const displayList = isCredit ? [...own, ...detectedLumpSums] : mine
     const opening = Number(a.opening_balance_cents ?? 0)
     const before = mine.filter(beforePeriod)
     const within = mine.filter(inPeriod)
+    const withinDisplay = displayList.filter(inPeriod)
 
     const sumDelta = (txs: Tx[]) =>
       txs.reduce(
@@ -251,12 +263,28 @@ export default async function ConciliacaoPage({
       transferInCents,
       transferOutCents,
       endBalance,
-      within,
+      within: withinDisplay,
       before,
     }
   })
 
-  const nonFgts = rows.filter((r) => r.account.type !== "fgts")
+  // Ordena contas pelo timestamp da última movimentação NO PERÍODO
+  // (descendente). Contas sem movimentação no período vão pro fim,
+  // ordenadas pelo nome. FGTS fica sempre por último.
+  const latestActivityKey = (r: (typeof rows)[number]): string => {
+    if (r.within.length === 0) return "0000-00-00T00:00:00Z"
+    const last = r.within[r.within.length - 1]!
+    return last.created_at || `${last.occurred_on}T00:00:00Z`
+  }
+  const nonFgts = rows
+    .filter((r) => r.account.type !== "fgts")
+    .sort((a, b) => {
+      const aHas = a.within.length > 0
+      const bHas = b.within.length > 0
+      if (aHas !== bHas) return aHas ? -1 : 1
+      if (!aHas) return a.account.name.localeCompare(b.account.name)
+      return latestActivityKey(b).localeCompare(latestActivityKey(a))
+    })
   const fgts = rows.filter((r) => r.account.type === "fgts")
 
   // Pendentes no período (sem conta atribuída) entram como bloco
