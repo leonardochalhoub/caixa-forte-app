@@ -277,7 +277,9 @@ export async function createBalanceRegistryAction(
       return { ok: false, error: `DB adjustments: ${adjErr.message}` }
     }
 
-    revalidatePath("/app/relatorios/balanco")
+    // Não chama revalidatePath aqui — o client faz router.refresh()
+    // após sucesso. Isso desacopla save de re-render, assim um bug
+    // no re-render não mascara o resultado real do save.
     return { ok: true, id: registryId }
   } catch (err) {
     const digest = (err as { digest?: string })?.digest

@@ -1,6 +1,7 @@
 "use client"
 
 import { Mic, MicOff, Plus, Sparkles } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { useRef, useState, useTransition } from "react"
 import { transcribeAudioOnlyAction } from "@/app/app/actions"
 import { Button } from "@/components/ui/button"
@@ -122,6 +123,7 @@ const SECTIONS = [
 ] as const
 
 export function AddRegistryButton({ period }: { period: string }) {
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [kindIdx, setKindIdx] = useState(0)
   const kind = KINDS[kindIdx]!
@@ -286,6 +288,7 @@ export function AddRegistryButton({ period }: { period: string }) {
         setCreditLabel("")
         setNote("")
         setOpen(false)
+        router.refresh()
       } catch (err) {
         toast.error(`Falha: ${(err as Error).message}`)
       }
