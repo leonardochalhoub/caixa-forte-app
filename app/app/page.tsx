@@ -223,13 +223,13 @@ export default async function DashboardPage() {
     // Pra demais contas: detected = 0, fica só base.
     let balance = base
     if (isCredit) {
-      // Modelo: se há lump-sum detectado, ELE é o total atual da
-      // fatura (inclui os itemizados). Nunca somar com card flow.
-      // Se não há lump-sum, usa só o flow (itemizados).
-      if (detected > 0) {
-        balance = Number(a.opening_balance_cents ?? 0) - detected
-      }
-      // else: balance = base (flow no cartão)
+      // Lump-sum = valor base da fatura (original). Itemizados (card
+      // flow) = compras novas em cima. Total debt = soma dos dois.
+      const itemizedDebt = Math.abs(
+        base - Number(a.opening_balance_cents ?? 0),
+      )
+      balance =
+        Number(a.opening_balance_cents ?? 0) - (itemizedDebt + detected)
     }
     return {
       id: a.id,

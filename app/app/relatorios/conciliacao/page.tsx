@@ -215,22 +215,13 @@ export default async function ConciliacaoPage({
   const rows = accs.map((a) => {
     const own = allTx.filter((t) => t.account_id === a.id)
     const detectedLumpSums = detectLumpSumsForCard(a)
-    const isCredit = a.type === "credit"
-    // Cartão: lump-sum detectado É o total da fatura, já inclui os
-    // charges itemizados. Pra o saldo NÃO dar double-count, usamos
-    // o lump-sum (se existir) OU os itemizados, não os dois.
-    const mine = isCredit
-      ? detectedLumpSums.length > 0
-        ? [...own.filter((t) => false), ...detectedLumpSums] // só lump-sum
-        : own
-      : [...own, ...detectedLumpSums]
-    // Mas pra EXIBIR a lista no detalhamento (tela/PDF), queremos ver
-    // tudo — lump-sum e itemizados. Trackeamos separadamente.
-    const displayList = isCredit ? [...own, ...detectedLumpSums] : mine
+    // Cartão: lump-sum (valor base original da fatura) + itemizados
+    // (compras novas que aumentam a dívida) são SOMADOS. Running
+    // balance na lista reflete isso naturalmente.
+    const mine = [...own, ...detectedLumpSums]
     const opening = Number(a.opening_balance_cents ?? 0)
     const before = mine.filter(beforePeriod)
     const within = mine.filter(inPeriod)
-    const withinDisplay = displayList.filter(inPeriod)
 
     const sumDelta = (txs: Tx[]) =>
       txs.reduce(
@@ -263,7 +254,7 @@ export default async function ConciliacaoPage({
       transferInCents,
       transferOutCents,
       endBalance,
-      within: withinDisplay,
+      within,
       before,
     }
   })
