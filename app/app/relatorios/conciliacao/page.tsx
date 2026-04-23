@@ -269,76 +269,76 @@ export default async function ConciliacaoPage({
     timeZone: "America/Sao_Paulo",
   })
 
-  const csvRows: string[][] = [
+  // XLSX guarda números como números — Excel aplica formato monetário
+  // via "formato da célula" se o user quiser. Aqui entregamos reais (com
+  // 2 decimais) como Number, não strings.
+  const toReais = (cents: number) => Math.round(cents) / 100
+  const xlsxRows: (string | number)[][] = [
     ["Conta", "Tipo", "Saldo inicial", "Entradas", "Saídas", "Transf. entrada", "Transf. saída", "Saldo final"],
     ...nonFgts.map((r) => [
       r.account.name,
       r.account.type,
-      (r.startBalance / 100).toFixed(2),
-      (r.incomeCents / 100).toFixed(2),
-      (r.expenseCents / 100).toFixed(2),
-      (r.transferInCents / 100).toFixed(2),
-      (r.transferOutCents / 100).toFixed(2),
-      (r.endBalance / 100).toFixed(2),
+      toReais(r.startBalance),
+      toReais(r.incomeCents),
+      toReais(r.expenseCents),
+      toReais(r.transferInCents),
+      toReais(r.transferOutCents),
+      toReais(r.endBalance),
     ]),
     ...fgts.map((r) => [
       `${r.account.name} (FGTS, não entra no saldo)`,
       r.account.type,
-      (r.startBalance / 100).toFixed(2),
-      (r.incomeCents / 100).toFixed(2),
-      (r.expenseCents / 100).toFixed(2),
-      (r.transferInCents / 100).toFixed(2),
-      (r.transferOutCents / 100).toFixed(2),
-      (r.endBalance / 100).toFixed(2),
+      toReais(r.startBalance),
+      toReais(r.incomeCents),
+      toReais(r.expenseCents),
+      toReais(r.transferInCents),
+      toReais(r.transferOutCents),
+      toReais(r.endBalance),
     ]),
-    pendingInPeriod.length > 0
-      ? [
-          "PENDENTES (sem conta atribuída)",
-          "pending",
-          "0.00",
-          (pendingIncomeCents / 100).toFixed(2),
-          (pendingExpenseCents / 100).toFixed(2),
-          "0.00",
-          "0.00",
-          (pendingNetCents / 100).toFixed(2),
-        ]
-      : [],
-    [
-      "TOTAL (ex-FGTS, com pendentes)",
-      "",
-      (accountsTotal.startBalance / 100).toFixed(2),
-      (totalIncomeCents / 100).toFixed(2),
-      (totalExpenseCents / 100).toFixed(2),
-      (accountsTotal.transferInCents / 100).toFixed(2),
-      (accountsTotal.transferOutCents / 100).toFixed(2),
-      (projectedEndBalance / 100).toFixed(2),
-    ],
-  ].filter((r) => r.length > 0)
-  // Detalhamento linha a linha ao final do CSV
-  csvRows.push([])
-  csvRows.push(["Detalhamento por conta"])
-  csvRows.push(["Conta", "Data", "Tipo", "Descrição", "Transferência?", "Valor", "Saldo corrente"])
-  for (const r of nonFgts) {
+  ]
+  if (pendingInPeriod.length > 0) {
+    xlsxRows.push([
+      "PENDENTES (sem conta atribuída)",
+      "pending",
+      0,
+      toReais(pendingIncomeCents),
+      toReais(pendingExpenseCents),
+      0,
+      0,
+      toReais(pendingNetCents),
+    ])
+  }
+  xlsxRows.push([
+    "TOTAL (ex-FGTS, com pendentes)",
+    "",
+    toReais(accountsTotal.startBalance),
+    toReais(totalIncomeCents),
+    toReais(totalExpenseCents),
+    toReais(accountsTotal.transferInCents),
+    toReais(accountsTotal.transferOutCents),
+    toReais(projectedEndBalance),
+  ])
+  xlsxRows.push([])
+  xlsxRows.push(["Detalhamento por conta"])
+  xlsxRows.push(["Conta", "Data", "Tipo", "Descrição", "Transferência?", "Valor", "Saldo corrente"])
+  for (const r of [...nonFgts, ...fgts]) {
     let running = r.startBalance
-    csvRows.push([r.account.name, "—", "início", "Saldo inicial do período", "", "", (running / 100).toFixed(2)])
+    xlsxRows.push([r.account.name, "—", "início", "Saldo inicial do período", "", "", toReais(running)])
     for (const t of r.within) {
       const delta = t.type === "income" ? t.amount_cents : -t.amount_cents
       running += delta
-      csvRows.push([
+      xlsxRows.push([
         r.account.name,
         t.occurred_on,
         t.type === "income" ? "entrada" : "saída",
         t.merchant ?? "(sem descrição)",
         t.is_transfer ? "sim" : "não",
-        ((delta / 100)).toFixed(2),
-        (running / 100).toFixed(2),
+        toReais(delta),
+        toReais(running),
       ])
     }
-    csvRows.push([r.account.name, "—", "fim", "Saldo final do período", "", "", (r.endBalance / 100).toFixed(2)])
+    xlsxRows.push([r.account.name, "—", "fim", "Saldo final do período", "", "", toReais(r.endBalance)])
   }
-  const csvContent = csvRows
-    .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-    .join("\n")
 
   // Meses disponíveis no dropdown: só aqueles que tiveram atividade
   // "real" — despesa, entrada formal ou pendente. Saldo inicial e
@@ -376,8 +376,9 @@ export default async function ConciliacaoPage({
         <div className="flex items-center gap-2">
           <ThemeToggle current={isDarkTheme ? "escuro" : "claro"} />
           <PrintActions
-            csvContent={csvContent}
-            filename={`conciliacao-${isFullHistory ? "historico" : periodo}.csv`}
+            rows={xlsxRows}
+            filename={`conciliacao-${isFullHistory ? "historico" : periodo}.xlsx`}
+            sheetName={isFullHistory ? "Histórico" : periodLabel}
           />
         </div>
       </div>

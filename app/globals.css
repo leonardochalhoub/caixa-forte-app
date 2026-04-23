@@ -79,24 +79,116 @@
   }
 }
 
-/* Dark theme para relatórios — força paleta escura independente da
-   preferência do sistema. Usado quando o user clica "Tema escuro"
-   no /app/relatorios/conciliacao. Override dos tokens apenas nesse
-   escopo para não vazar pro resto do app. */
+/* Dark theme do relatório — força paleta escura e cores explícitas
+   em cada classe relevante. Uso CSS vars + rules específicas pra
+   garantir cascata mesmo quando o page.tsx ainda está em .light no
+   <html>. Acentuação verde/vermelha mais saturada pra ler no escuro. */
 .report-dark {
-  --color-canvas: #09090b;
-  --color-subtle: #18181b;
-  --color-border: #3f3f46;
+  --color-canvas: #0a0a0c;
+  --color-subtle: #141417;
+  --color-border: #27272a;
   --color-muted: #a1a1aa;
-  --color-body: #e4e4e7;
+  --color-body: #d4d4d8;
   --color-strong: #fafafa;
   --color-ink: #fafafa;
-  --color-income: #22c55e;
+  --color-income: #4ade80;
   --color-expense: #f87171;
-  background: var(--color-canvas);
-  color: var(--color-body);
-  padding: 1rem;
-  border-radius: 0.75rem;
+  background: #0a0a0c;
+  color: #d4d4d8;
+  padding: 2rem 1.75rem;
+  border-radius: 1rem;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+/* Cores explícitas — evita text-body "sumir" quando Tailwind resolve
+   vars em tempo de build e o escopo cascateado falha. */
+.report-dark,
+.report-dark p,
+.report-dark h1,
+.report-dark h2,
+.report-dark h3,
+.report-dark td,
+.report-dark th,
+.report-dark li,
+.report-dark summary {
+  color: #d4d4d8;
+}
+.report-dark .text-strong,
+.report-dark .text-ink,
+.report-dark strong,
+.report-dark h1,
+.report-dark h2,
+.report-dark h3,
+.report-dark thead th {
+  color: #fafafa !important;
+}
+.report-dark .text-body {
+  color: #d4d4d8 !important;
+}
+.report-dark .text-muted,
+.report-dark .italic {
+  color: #a1a1aa !important;
+}
+.report-dark .text-income {
+  color: #4ade80 !important;
+}
+.report-dark .text-expense {
+  color: #f87171 !important;
+}
+.report-dark code {
+  color: #e4e4e7 !important;
+  background: #27272a !important;
+}
+.report-dark .border,
+.report-dark .border-t,
+.report-dark .border-b,
+.report-dark .border-l,
+.report-dark .border-r,
+.report-dark .border-t-2,
+.report-dark .border-b-2,
+.report-dark table,
+.report-dark thead,
+.report-dark tfoot,
+.report-dark tr,
+.report-dark td,
+.report-dark th {
+  border-color: #27272a !important;
+}
+.report-dark .bg-subtle,
+.report-dark thead {
+  background: #141417 !important;
+}
+.report-dark tfoot {
+  background: #17171b !important;
+}
+.report-dark tfoot tr.border-t-2 {
+  border-top-color: #3f3f46 !important;
+}
+.report-dark .rounded-2xl,
+.report-dark .rounded-xl {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+.report-dark section > div.overflow-x-auto {
+  background: #111114;
+  border-color: #27272a;
+}
+/* Zera qualquer bg-canvas/branco que possa escapar. No escuro, só texto
+   é claro — backgrounds ficam todos escuros, cor única por camada. */
+.report-dark .bg-canvas,
+.report-dark .bg-base,
+.report-dark [class*="bg-white"] {
+  background: #0a0a0c !important;
+}
+.report-dark .bg-gradient-to-br,
+.report-dark [class*="bg-gradient"] {
+  background: #111114 !important;
+}
+/* Tabela: sem linhas zebradas claras, só divisórias escuras */
+.report-dark tr,
+.report-dark tbody tr {
+  background: transparent !important;
+}
+.report-dark tbody tr:nth-child(even) {
+  background: #0e0e11 !important;
 }
 
 /* Print layout — tuned for A4 (210×297mm).
