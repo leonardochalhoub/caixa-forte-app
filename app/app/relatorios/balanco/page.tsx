@@ -151,13 +151,16 @@ export default async function BalancoPage({
       .select("id, name, type, opening_balance_cents, balance_classification")
       .eq("user_id", user.id)
       .is("archived_at", null),
+    // Sem filtro de occurred_on — dívida de cartão precisa de todas
+    // as tx não pagas independente da data (source of truth alinhado
+    // com /app/cartoes). Filtros por data acontecem no código que
+    // de fato precisa deles (overdueLiabilities, FIPE, etc).
     untyped(supabase)
       .from("transactions")
       .select(
         "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer",
       )
-      .eq("user_id", user.id)
-      .lte("occurred_on", snapshotDate),
+      .eq("user_id", user.id),
     untyped(supabase)
       .from("profiles")
       .select("display_name")
