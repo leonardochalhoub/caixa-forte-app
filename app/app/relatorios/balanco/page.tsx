@@ -426,10 +426,43 @@ export default async function BalancoPage({
     ativoNCIntangivelTotal
   const ativoTotal = ativoCirculanteTotal + ativoNCTotal
 
+  // Agendadas vencidas (non-cartão, não pagas, occurred_on já
+  // passou) entram como Passivo Circulante — são dívidas de curto
+  // prazo, obrigações assumidas cujo serviço/bem já foi prestado.
+  // Cartão já é tratado no bucket dedicado.
+  type OverdueLine = {
+    id: string
+    label: string
+    dueDate: string
+    cents: number
+  }
+  const overdueLiabilities: OverdueLine[] = []
+  for (const t of txs) {
+    if (t.is_transfer) continue
+    if (t.type !== "expense") continue
+    if (t.paid_at) continue
+    if (t.occurred_on > snapshotDate) continue
+    if (creditAccountIds.has(t.account_id)) continue // cartão já tem seu bucket
+    // Ignora se merchant já é lump-sum de cartão (já detectado lá)
+    const m = normalizeStr(t.merchant ?? "")
+    if (m.includes("cartao")) continue
+    overdueLiabilities.push({
+      id: t.id,
+      label: t.merchant ?? "Despesa vencida",
+      dueDate: t.occurred_on,
+      cents: Number(t.amount_cents),
+    })
+  }
+  const overdueLiabilitiesTotal = overdueLiabilities.reduce(
+    (s, l) => s + l.cents,
+    0,
+  )
+
   const passivoCirculanteTotal =
     (passivoCartoes?.total ?? 0) +
     sumAdj("passivo_circulante_cartoes") +
-    sumAdj("passivo_circulante_outros")
+    sumAdj("passivo_circulante_outros") +
+    overdueLiabilitiesTotal
   const passivoNCTotal = sumAdj("passivo_nc_financiamentos")
   const passivoTotal = passivoCirculanteTotal + passivoNCTotal
 
@@ -694,6 +727,34 @@ export default async function BalancoPage({
                 }
               />
             </div>
+            {overdueLiabilities.length > 0 && (
+              <div className="pl-2">
+                <SubSectionHeader
+                  title="Agendadas vencidas"
+                  total={overdueLiabilitiesTotal}
+                />
+                <ul className="space-y-0.5 pl-7">
+                  {overdueLiabilities
+                    .sort((a, b) => b.cents - a.cents)
+                    .map((l) => (
+                      <li
+                        key={l.id}
+                        className="flex items-baseline justify-between gap-3 text-[11px] text-muted"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          ↳ {l.label}{" "}
+                          <span className="text-[9px]">
+                            · venc. {l.dueDate.split("-").reverse().join("/")}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-mono tabular-nums">
+                          {formatBRL(l.cents)}
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
             {(adjustmentsBySection.get("passivo_circulante_outros") ?? [])
               .length > 0 && (
               <div className="pl-2">
