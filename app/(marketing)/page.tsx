@@ -8,6 +8,7 @@ import { PrivacyDisclaimer } from "@/components/PrivacyDisclaimer"
 import { SafeBoxIcon } from "@/components/SafeBoxIcon"
 import { ThemeToggle } from "@/components/theme-toggle"
 
+// a
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
