@@ -39,7 +39,9 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     untyped(supabase)
       .from("transactions")
-      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at")
+      .select(
+        "type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at, merchant",
+      )
       .eq("user_id", user.id)
       .gte("occurred_on", oldestStart),
     // "Últimas transações" no dashboard só mostra movimentações das
@@ -135,19 +137,75 @@ export default async function DashboardPage() {
     amount_cents: number | string
     category_id: string | null
     is_transfer: boolean | null
+    merchant: string | null
   }
   const monthTxTyped = (monthTx ?? []) as MonthTxRow[]
+  // Constrói map de itemizados do cartão por mês (pra o lump-sum da
+  // corrente ser contabilizado com o valor efetivo 6415,25 + 781,44
+  // em vez do valor raw da tx).
+  const itemizedByCardMonthKpi = new Map<string, number>()
+  for (const t of monthTxTyped) {
+    if (t.is_transfer) continue
+    if (!creditAccountIdSet.has(t.account_id)) continue
+    if (t.type !== "expense") continue
+    const key = `${t.account_id}-${t.occurred_on.slice(0, 7)}`
+    itemizedByCardMonthKpi.set(
+      key,
+      (itemizedByCardMonthKpi.get(key) ?? 0) + Number(t.amount_cents),
+    )
+  }
+  const cardsByBankKeyKpi = new Map<string, string>()
+  for (const a of accounts ?? []) {
+    if (a.type !== "credit") continue
+    const cleaned = a.name.replace(/cart[ãa]o.*/i, "").trim()
+    const k = cleaned
+      .split(/\s+/)[0]
+      ?.normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+    if (k) cardsByBankKeyKpi.set(k, a.id)
+  }
+  const effectiveForKpi = (t: MonthTxRow): number => {
+    const base = Number(t.amount_cents)
+    const m = (t as MonthTxRow & { merchant?: string | null }).merchant
+    // monthTx query não traz merchant. Não consigo fazer match aqui.
+    // Fallback: retorna base. O match pra effective acontece em
+    // monthTx APENAS se incluir merchant. Adicionando na query.
+    return base + (m ? 0 : 0)
+  }
+  void effectiveForKpi // silence unused
+
   const monthly = bucketizeTransactions(
     [
       ...monthTxTyped
         .filter((t) => !creditAccountIdSet.has(t.account_id))
-        .map((t) => ({
-          occurred_on: t.occurred_on,
-          type: t.type as "income" | "expense",
-          amount_cents: Number(t.amount_cents),
-          category_id: t.category_id,
-          is_transfer: t.is_transfer ?? false,
-        })),
+        .map((t) => {
+          const m = (t as MonthTxRow & { merchant?: string | null }).merchant ?? ""
+          const normalized = m
+            .normalize("NFD")
+            .replace(/\p{Diacritic}/gu, "")
+            .toLowerCase()
+          let amount = Number(t.amount_cents)
+          if (normalized.includes("cartao")) {
+            for (const [bankKey, cardId] of cardsByBankKeyKpi) {
+              if (normalized.includes(bankKey)) {
+                const addon =
+                  itemizedByCardMonthKpi.get(
+                    `${cardId}-${t.occurred_on.slice(0, 7)}`,
+                  ) ?? 0
+                amount = Number(t.amount_cents) + addon
+                break
+              }
+            }
+          }
+          return {
+            occurred_on: t.occurred_on,
+            type: t.type as "income" | "expense",
+            amount_cents: amount,
+            category_id: t.category_id,
+            is_transfer: t.is_transfer ?? false,
+          }
+        }),
       ...pendingVirtualTx.map((p) => ({
         occurred_on: p.occurred_on,
         type: p.type,
