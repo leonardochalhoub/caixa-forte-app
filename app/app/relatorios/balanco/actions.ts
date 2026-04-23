@@ -372,17 +372,56 @@ JSON:`
   const json = JSON.parse(content) as Record<string, unknown>
 
   // Validação mínima
-  const SuggestOutputSchema = z.object({
-    kind: z.enum(AI_KINDS),
-    description: z.string().trim().min(1).max(120),
-    debit_section: z.enum(AI_SECTIONS),
-    debit_label: z.string().trim().min(1).max(80),
-    credit_section: z.enum(AI_SECTIONS),
-    credit_label: z.string().trim().min(1).max(80),
-    amount_cents: z.number().int().nullable(),
-    note: z.string().trim().nullable(),
-  })
-  return SuggestOutputSchema.parse(json)
+  // Parse tolerante: Groq às vezes retorna amount como string ou note
+  // como "null" string. Normaliza antes de validar.
+  const normalizeAmount = (v: unknown): number | null => {
+    if (v == null || v === "" || v === "null") return null
+    if (typeof v === "number") return Math.round(v)
+    if (typeof v === "string") {
+      const n = Number(v.replace(/[^\d]/g, ""))
+      return Number.isFinite(n) ? n : null
+    }
+    return null
+  }
+  const normalized = {
+    kind: String(json.kind ?? ""),
+    description: String(json.description ?? "").trim(),
+    debit_section: String(json.debit_section ?? ""),
+    debit_label: String(json.debit_label ?? "").trim(),
+    credit_section: String(json.credit_section ?? ""),
+    credit_label: String(json.credit_label ?? "").trim(),
+    amount_cents: normalizeAmount(json.amount_cents),
+    note:
+      json.note == null || json.note === "null" || json.note === ""
+        ? null
+        : String(json.note).trim(),
+  }
+
+  // Validação: se kind ou section inválidos, usa fallback sensato
+  const validKind = (AI_KINDS as readonly string[]).includes(normalized.kind)
+    ? (normalized.kind as (typeof AI_KINDS)[number])
+    : "retirada"
+  const validDebitSection = (AI_SECTIONS as readonly string[]).includes(
+    normalized.debit_section,
+  )
+    ? (normalized.debit_section as (typeof AI_SECTIONS)[number])
+    : "patrimonio_liquido"
+  const validCreditSection = (AI_SECTIONS as readonly string[]).includes(
+    normalized.credit_section,
+  )
+    ? (normalized.credit_section as (typeof AI_SECTIONS)[number])
+    : "ativo_circulante_disponivel"
+
+  return {
+    kind: validKind,
+    description: normalized.description || "Registro sem descrição",
+    debit_section: validDebitSection,
+    debit_label: normalized.debit_label || "Débito",
+    credit_section: validCreditSection,
+    credit_label: normalized.credit_label || "Crédito",
+    amount_cents: normalized.amount_cents,
+    note: normalized.note,
+  }
 }
 
 export async function deleteBalanceRegistryAction(registryId: string) {

@@ -1,7 +1,8 @@
 "use client"
 
-import { Plus, Sparkles } from "lucide-react"
-import { useState, useTransition } from "react"
+import { Mic, MicOff, Plus, Sparkles } from "lucide-react"
+import { useRef, useState, useTransition } from "react"
+import { transcribeAudioOnlyAction } from "@/app/app/actions"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -116,6 +117,10 @@ export function AddRegistryButton({ period }: { period: string }) {
 
   const [aiPrompt, setAiPrompt] = useState("")
   const [aiPending, startAi] = useTransition()
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
   const [debitSection, setDebitSection] = useState<string>(kind.debitDefault)
@@ -130,6 +135,78 @@ export function AddRegistryButton({ period }: { period: string }) {
     const k = KINDS[i]!
     setDebitSection(k.debitDefault)
     setCreditSection(k.creditDefault)
+  }
+
+  async function startRecording() {
+    if (recording || transcribing) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const rec = new MediaRecorder(stream)
+      chunksRef.current = []
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(chunksRef.current, {
+          type: chunksRef.current[0]?.type || "audio/webm",
+        })
+        transcribeAndSuggest(blob)
+      }
+      rec.start()
+      mediaRef.current = rec
+      setRecording(true)
+    } catch (err) {
+      toast.error("Sem acesso ao microfone.", {
+        description: (err as Error).message,
+      })
+    }
+  }
+
+  function stopRecording() {
+    mediaRef.current?.stop()
+    mediaRef.current = null
+    setRecording(false)
+  }
+
+  function transcribeAndSuggest(blob: Blob) {
+    setTranscribing(true)
+    startAi(async () => {
+      try {
+        const fd = new FormData()
+        fd.append("audio", blob, "registro.webm")
+        const t = await transcribeAudioOnlyAction(fd)
+        if (!t.ok || !t.text) {
+          toast.error(t.error ?? "Não consegui transcrever.")
+          setTranscribing(false)
+          return
+        }
+        setAiPrompt(t.text)
+        // Emenda: chama IA direto com o texto transcrito
+        const r = await suggestBalanceRegistryAction({ description: t.text })
+        setDescription(r.description)
+        setDebitSection(r.debit_section)
+        setDebitLabel(r.debit_label)
+        setCreditSection(r.credit_section)
+        setCreditLabel(r.credit_label)
+        if (r.amount_cents != null) {
+          setAmount(
+            (r.amount_cents / 100)
+              .toFixed(2)
+              .replace(".", ",")
+              .replace(/\B(?=(\d{3})+(?!\d))/g, "."),
+          )
+        }
+        if (r.note) setNote(r.note)
+        const idx = KINDS.findIndex((k) => k.key === r.kind)
+        if (idx >= 0) setKindIdx(idx)
+        toast.success("Áudio processado — revise e ajuste.")
+      } catch (err) {
+        toast.error((err as Error).message)
+      } finally {
+        setTranscribing(false)
+      }
+    })
   }
 
   function askAI() {
@@ -230,19 +307,37 @@ export function AddRegistryButton({ period }: { period: string }) {
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 rows={2}
-                placeholder='Ex: "Paguei pensão alimentícia R$ 500 da Caixa EF" ou "Comprei bicicleta no Nubank Cartão por 2500"'
+                placeholder='Fale ou escreva: "Paguei pensão alimentícia R$ 500 da Caixa EF"'
                 className="flex-1 rounded-md border border-border bg-canvas px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-strong"
               />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={askAI}
-                disabled={aiPending}
-                className="shrink-0 self-start"
-              >
-                {aiPending ? "…" : "Preencher"}
-              </Button>
+              <div className="flex shrink-0 flex-col gap-1 self-start">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={recording ? "default" : "outline"}
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={transcribing || aiPending}
+                  title={recording ? "Parar gravação" : "Gravar áudio"}
+                  className={recording ? "bg-expense text-white" : ""}
+                >
+                  {transcribing ? (
+                    <span className="text-[11px]">…</span>
+                  ) : recording ? (
+                    <MicOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <Mic className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={askAI}
+                  disabled={aiPending || recording || transcribing}
+                >
+                  {aiPending && !transcribing ? "…" : "Preencher"}
+                </Button>
+              </div>
             </div>
             <p className="text-[10px] italic text-muted">
               A IA só sugere — você revisa e edita antes de salvar.
