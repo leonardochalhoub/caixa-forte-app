@@ -126,9 +126,19 @@ export default async function DREPage({
     ])
 
   const accs = (accounts ?? []) as AccountRow[]
+  // Exclui saldo-inicial artificial — não é receita nem despesa do
+  // período, é só ponto de partida de uma conta/investimento.
+  const isOpeningBalance = (m: string | null) => {
+    if (!m) return false
+    const n = m
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+    return n.includes("saldo inicial") || n.includes("saldo-inicial")
+  }
   const txs = ((txsRaw ?? []) as Tx[])
-    // Transferências não são receita nem despesa — só movimento interno
     .filter((t) => !t.is_transfer)
+    .filter((t) => !isOpeningBalance(t.merchant))
   const cats = (catsRaw ?? []) as CategoryRow[]
   const catById = new Map(cats.map((c) => [c.id, c]))
   const formalIncomeIds = new Set(

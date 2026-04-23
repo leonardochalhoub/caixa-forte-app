@@ -3,6 +3,7 @@ import { isAdminish, requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { reactivateIfDeleted } from "./profile/lifecycle"
 import { Footer } from "@/components/footer"
+import { SafeBoxIcon } from "@/components/SafeBoxIcon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { formatShortName } from "@/lib/format-name"
 import { AppNav } from "./_components/AppNav"
@@ -34,8 +35,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <div className="flex h-14 items-center justify-between px-4 md:h-16 md:px-6">
           <Link
             href="/app"
-            className="flex items-baseline gap-2 tracking-tight text-ink"
+            className="flex items-center gap-2 tracking-tight text-ink"
           >
+            <SafeBoxIcon size={22} strokeWidth={1.75} className="text-strong" />
             <span className="font-semibold">Caixa Forte</span>
             <span className="hidden text-muted sm:inline">—</span>
             <span className="hidden font-serif text-sm italic text-muted sm:inline">

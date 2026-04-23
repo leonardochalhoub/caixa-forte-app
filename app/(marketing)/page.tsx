@@ -5,13 +5,15 @@ import { Button } from "@/components/ui/button"
 import { Footer } from "@/components/footer"
 import { DocsButton } from "@/components/DocsButton"
 import { PrivacyDisclaimer } from "@/components/PrivacyDisclaimer"
+import { SafeBoxIcon } from "@/components/SafeBoxIcon"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export default function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
-        <div className="flex items-baseline gap-2 tracking-tight text-ink">
+        <div className="flex items-center gap-2 tracking-tight text-ink">
+          <SafeBoxIcon size={22} strokeWidth={1.75} className="text-strong" />
           <span className="font-semibold">Caixa Forte</span>
           <span className="hidden text-muted sm:inline">—</span>
           <span className="hidden font-serif text-sm italic text-muted sm:inline">
@@ -29,7 +31,40 @@ export default function LandingPage() {
         </nav>
       </header>
 
-      <section className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-24 text-center">
+      <section className="mx-auto w-full max-w-2xl px-6 pt-10">
+        <Link
+          href="/api/demo/enter"
+          target="_blank"
+          rel="noopener"
+          className="group flex items-center gap-4 rounded-2xl border border-border bg-subtle/40 p-4 transition-colors hover:border-strong/30 hover:bg-subtle"
+        >
+          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-border">
+            <Image
+              src="https://randomuser.me/api/portraits/women/79.jpg"
+              alt="Larissa Oliveira — conta de demonstração"
+              width={64}
+              height={64}
+              unoptimized
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="flex-1 space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted">
+              Ver conta de exemplo
+            </p>
+            <p className="text-base font-medium text-strong">
+              Larissa Oliveira · São Paulo
+            </p>
+            <p className="text-xs text-body">
+              Explore o app como se fosse uma usuária real: 16 meses de
+              transações, cartões, investimentos, FGTS e um carro financiado.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-strong" />
+        </Link>
+      </section>
+
+      <section className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-20 text-center">
         <div className="flex flex-col items-center gap-3">
           <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-ink md:text-7xl">
             Caixa Forte
@@ -63,39 +98,6 @@ export default function LandingPage() {
           </Button>
           <DocsButton source="main" size="lg" label="Documentação" />
         </div>
-      </section>
-
-      <section className="mx-auto w-full max-w-2xl px-6 pb-10">
-        <Link
-          href="/api/demo/enter"
-          target="_blank"
-          rel="noopener"
-          className="group flex items-center gap-4 rounded-2xl border border-border bg-subtle/40 p-4 transition-colors hover:border-strong/30 hover:bg-subtle"
-        >
-          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-border">
-            <Image
-              src="https://randomuser.me/api/portraits/women/79.jpg"
-              alt="Larissa Oliveira — conta de demonstração"
-              width={64}
-              height={64}
-              unoptimized
-              className="h-full w-full object-cover"
-            />
-          </div>
-          <div className="flex-1 space-y-0.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted">
-              Ver conta de exemplo
-            </p>
-            <p className="text-base font-medium text-strong">
-              Larissa Oliveira · São Paulo
-            </p>
-            <p className="text-xs text-body">
-              Explore o app como se fosse uma usuária real: 16 meses de
-              transações, cartões, investimentos, FGTS e um carro financiado.
-            </p>
-          </div>
-          <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-strong" />
-        </Link>
       </section>
 
       <section className="mx-auto w-full max-w-2xl px-6 pb-16">
