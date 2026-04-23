@@ -324,18 +324,19 @@ export default async function BalancoPage({
   }
 
   // Saldo por conta na data do snapshot.
-  // Regra: não-cartão conta só paid_at !== null e paid_at <= snapshot.
-  // Cartão conta TODAS as tx até a data (charges = dívida desde o swipe)
-  // + lump-sums detectados em outras contas (merchant "<banco> cartão"
-  // agendado) até a data.
+  // Não-cartão: só paid_at !== null e paid_at <= snapshot (caixa real).
+  // Cartão: reflete dívida LIVE — todas as tx no cartão + todos os
+  // lump-sums de fatura não pagos, SEM filtro de occurred_on. Isso
+  // garante source-of-truth consistente com /app/cartoes e com o hero
+  // da home: se o usuário gasta mais no cartão, Balanço sobe junto.
   function balanceAt(acc: AccountRow, cutoffIso: string): number {
     const opening = Number(acc.opening_balance_cents ?? 0)
     const isCredit = acc.type === "credit"
     const mine = txs.filter((t) => t.account_id === acc.id)
     let flow = 0
     for (const t of mine) {
-      if (t.occurred_on > cutoffIso) continue
       if (!isCredit) {
+        if (t.occurred_on > cutoffIso) continue
         if (!t.paid_at) continue
         if (t.paid_at > `${cutoffIso}T23:59:59Z`) continue
       }
@@ -349,8 +350,7 @@ export default async function BalancoPage({
           if (t.account_id === acc.id) continue
           if (t.is_transfer) continue
           if (t.type !== "expense") continue
-          if (t.paid_at) continue // já pago, não é dívida na data
-          if (t.occurred_on > cutoffIso) continue
+          if (t.paid_at) continue // já pago, não é dívida
           const m = normalizeStr(t.merchant ?? "")
           if (!m.includes("cartao")) continue
           if (!m.includes(bankKey)) continue
