@@ -366,45 +366,45 @@ function BankCard({
           {group.accounts.map((acc) => (
             <li
               key={acc.id}
-              className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"
+              className="flex flex-col gap-1.5 px-3 py-2.5 text-sm"
             >
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-strong">
+              <div className="flex items-center justify-between gap-3">
+                <p className="min-w-0 flex-1 truncate font-medium text-strong">
                   {acc.subLabel ?? TYPE_LABELS[acc.type]}
                 </p>
-                <ClassificationPicker
-                  accountId={acc.id}
-                  current={acc.balanceClassification ?? null}
-                  defaultGuess={defaultClassificationFor(acc.type)}
-                  disabled={pending}
-                />
-              </div>
-              <p
-                className={`font-mono text-sm font-semibold tabular-nums ${
-                  acc.balanceCents < 0 ? "text-expense" : "text-strong"
-                }`}
-              >
-                {formatBRL(acc.balanceCents)}
-              </p>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <ReconcileDialog
-                  accountId={acc.id}
-                  accountName={acc.name}
-                  computedCents={acc.balanceCents}
-                  disabled={pending}
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted hover:text-strong"
-                  onClick={() => onArchive(acc.id)}
-                  disabled={pending}
-                  title="Arquivar"
-                  aria-label={`Arquivar ${acc.name}`}
+                <p
+                  className={`shrink-0 font-mono text-sm font-semibold tabular-nums ${
+                    acc.balanceCents < 0 ? "text-expense" : "text-strong"
+                  }`}
                 >
-                  <Archive className="h-3.5 w-3.5" />
-                </Button>
+                  {formatBRL(acc.balanceCents)}
+                </p>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <ReconcileDialog
+                    accountId={acc.id}
+                    accountName={acc.name}
+                    computedCents={acc.balanceCents}
+                    disabled={pending}
+                  />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted hover:text-strong"
+                    onClick={() => onArchive(acc.id)}
+                    disabled={pending}
+                    title="Arquivar"
+                    aria-label={`Arquivar ${acc.name}`}
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
+              <ClassificationPicker
+                accountId={acc.id}
+                current={acc.balanceClassification ?? null}
+                defaultGuess={defaultClassificationFor(acc.type)}
+                disabled={pending}
+              />
             </li>
           ))}
         </ul>
