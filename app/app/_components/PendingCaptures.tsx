@@ -71,8 +71,18 @@ function PendingRow({
   capture: PendingCapture
   accounts: { id: string; name: string; type: AccountType }[]
 }) {
+  // FGTS, ações e cripto não fazem sentido como fonte pra despesas comuns;
+  // mantemos só corrente, poupança, dinheiro/carteira e renda fixa. Cartões
+  // aparecem num grupo próprio.
   const creditAccounts = accounts.filter((a) => a.type === "credit")
-  const otherAccounts = accounts.filter((a) => a.type !== "credit")
+  const otherAccounts = accounts.filter(
+    (a) =>
+      a.type === "checking" ||
+      a.type === "cash" ||
+      a.type === "wallet" ||
+      a.type === "savings" ||
+      a.type === "poupanca",
+  )
   const [accountId, setAccountId] = useState<string>("")
   const [pending, start] = useTransition()
   const { parsed } = capture
