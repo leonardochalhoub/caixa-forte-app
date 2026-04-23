@@ -1,12 +1,14 @@
 import Link from "next/link"
 import { isAdminish, requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
+import { untyped } from "@/lib/supabase/untyped"
 import { reactivateIfDeleted } from "./profile/lifecycle"
 import { Footer } from "@/components/footer"
 import { SafeBoxIcon } from "@/components/SafeBoxIcon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { formatShortName } from "@/lib/format-name"
 import { AppNav } from "./_components/AppNav"
+import { DemoTabGuard } from "./_components/DemoTabGuard"
 import { LoginHeartbeat } from "./_components/LoginHeartbeat"
 import { ProfileMenu } from "./_components/ProfileMenu"
 
@@ -16,13 +18,18 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // after the user signs back in with the same email+password.
   await reactivateIfDeleted(user.id)
   const supabase = await createServerClient()
-  const { data: profile } = await supabase
+  const { data: profile } = await untyped(supabase)
     .from("profiles")
-    .select("display_name")
+    .select("display_name, is_demo")
     .eq("user_id", user.id)
     .maybeSingle()
+  const typedProfile = profile as
+    | { display_name?: string | null; is_demo?: boolean | null }
+    | null
+  const isDemo = typedProfile?.is_demo === true
 
-  const shortName = formatShortName(profile?.display_name) || user.email || ""
+  const shortName =
+    formatShortName(typedProfile?.display_name) || user.email || ""
   const avatarUrl =
     (user.user_metadata as { avatar_url?: string; picture?: string } | null)?.avatar_url ??
     (user.user_metadata as { avatar_url?: string; picture?: string } | null)?.picture ??
@@ -31,6 +38,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
+      {isDemo && <DemoTabGuard />}
       <header className="no-print sticky top-0 z-40 border-b border-border bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80">
         <div className="flex h-14 items-center justify-between px-4 md:h-16 md:px-6">
           <Link

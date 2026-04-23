@@ -45,9 +45,15 @@ export function ProfileMenu({
   function handleLogout() {
     setOpen(false)
     start(async () => {
-      await createBrowserClient().auth.signOut()
-      router.push("/")
-      router.refresh()
+      // Cliente limpa localStorage; em seguida redireciona pro route /logout
+      // que limpa os cookies httpOnly no servidor. Hard navigation garante
+      // que próxima leitura já veja estado limpo (sem cache RSC).
+      try {
+        await createBrowserClient().auth.signOut()
+      } catch {
+        // Mesmo se der erro, avança pro server logout — prioridade é limpar cookies.
+      }
+      window.location.href = "/logout"
     })
   }
 

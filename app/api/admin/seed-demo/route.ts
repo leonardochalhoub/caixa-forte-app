@@ -10,13 +10,26 @@ const DEMO_PASSWORD = "DemoPublico#2026"
 const DEMO_NAME = "Larissa Oliveira"
 const DEMO_AVATAR_URL = "https://randomuser.me/api/portraits/women/79.jpg"
 
+// Pool de cidades brasileiras pra sorteio (com coords pro mapa do sysadmin)
+const CITIES: Array<{ city: string; uf: string; lat: number; lng: number }> = [
+  { city: "São Paulo", uf: "SP", lat: -23.55, lng: -46.63 },
+  { city: "Rio de Janeiro", uf: "RJ", lat: -22.91, lng: -43.17 },
+  { city: "Belo Horizonte", uf: "MG", lat: -19.92, lng: -43.94 },
+  { city: "Porto Alegre", uf: "RS", lat: -30.03, lng: -51.22 },
+  { city: "Curitiba", uf: "PR", lat: -25.43, lng: -49.27 },
+  { city: "Salvador", uf: "BA", lat: -12.97, lng: -38.51 },
+  { city: "Recife", uf: "PE", lat: -8.05, lng: -34.88 },
+  { city: "Florianópolis", uf: "SC", lat: -27.59, lng: -48.55 },
+  { city: "Brasília", uf: "DF", lat: -15.78, lng: -47.93 },
+  { city: "Fortaleza", uf: "CE", lat: -3.73, lng: -38.52 },
+  { city: "Goiânia", uf: "GO", lat: -16.68, lng: -49.25 },
+  { city: "Belém", uf: "PA", lat: -1.46, lng: -48.5 },
+]
+
 type SeedLog = { step: string; detail: string; ok: boolean }
 
 type RangeKey = "full" | "2025" | "2026" | "q1-2026" | "last-12m"
 
-// ------ SEED DATA GENERATORS (sem IA externa — determinístico) ------
-
-// Meses presentes no range selecionado. Cada mês expande pra ~18-22 tx.
 function monthsForRange(range: RangeKey): string[] {
   const months: string[] = []
   const push = (y: number, m: number) =>
@@ -41,17 +54,15 @@ function monthsForRange(range: RangeKey): string[] {
     }
     case "full":
     default:
-      // Completo = 2025 inteiro + 2026 inteiro (24 meses). Meses futuros
-      // ficam com tx agendadas (paid_at=null).
       for (let m = 1; m <= 12; m++) push(2025, m)
       for (let m = 1; m <= 12; m++) push(2026, m)
       return months
   }
 }
 
-// Pseudo-random determinístico (mulberry32) — mesmas "aleatoriedades"
-// toda vez que roda, seed reproduzível.
-function rng(seed: number) {
+// RNG seeded (mulberry32). Seed passado no setup pra dar variedade
+// entre re-seeds sem depender do Math.random global.
+function makeRng(seed: number) {
   let s = seed
   return () => {
     s |= 0
@@ -61,10 +72,6 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
 }
-const r = rng(42)
-const pick = <T>(arr: T[]) => arr[Math.floor(r() * arr.length)]!
-const between = (min: number, max: number) =>
-  Math.round(min + r() * (max - min))
 
 function pad2(n: number) {
   return String(n).padStart(2, "0")
@@ -95,20 +102,129 @@ type TxPayload = {
   source: string
 }
 
+// Eventos pontuais (não recorrentes). Cada um tem uma probabilidade
+// de acontecer no mês + faixa de valor + descrição.
+type OneOffEvent = {
+  chance: number
+  label: string
+  category: string
+  min: number
+  max: number
+  account?: string // default Nubank Conta
+  isIncome?: boolean
+}
+
+const ONEOFF_EVENTS: OneOffEvent[] = [
+  {
+    chance: 0.12,
+    label: "Cirurgia do Thor (vet)",
+    category: "Saúde",
+    min: 180000,
+    max: 380000,
+  },
+  {
+    chance: 0.08,
+    label: "Cirurgia da Mel (vet)",
+    category: "Saúde",
+    min: 150000,
+    max: 320000,
+  },
+  {
+    chance: 0.15,
+    label: "Ração + vacina dos cachorros",
+    category: "Saúde",
+    min: 15000,
+    max: 32000,
+  },
+  {
+    chance: 0.1,
+    label: "Conserto do carro",
+    category: "Transporte",
+    min: 50000,
+    max: 220000,
+  },
+  {
+    chance: 0.08,
+    label: "Revisão oficial Honda",
+    category: "Transporte",
+    min: 45000,
+    max: 90000,
+  },
+  {
+    chance: 0.06,
+    label: "Dentista",
+    category: "Saúde",
+    min: 30000,
+    max: 180000,
+  },
+  {
+    chance: 0.07,
+    label: "Geladeira nova",
+    category: "Cuidados Pessoais",
+    min: 250000,
+    max: 420000,
+  },
+  {
+    chance: 0.05,
+    label: "Celular novo",
+    category: "Cuidados Pessoais",
+    min: 200000,
+    max: 450000,
+  },
+  {
+    chance: 0.1,
+    label: "Viagem fim de semana",
+    category: "Lazer",
+    min: 60000,
+    max: 180000,
+  },
+  {
+    chance: 0.05,
+    label: "Viagem internacional",
+    category: "Lazer",
+    min: 400000,
+    max: 900000,
+  },
+  {
+    chance: 0.06,
+    label: "Presente aniversário família",
+    category: "Lazer",
+    min: 15000,
+    max: 60000,
+  },
+  {
+    chance: 0.04,
+    label: "Curso online",
+    category: "Cuidados Pessoais",
+    min: 40000,
+    max: 120000,
+  },
+  {
+    chance: 0.05,
+    label: "Doação cirurgia avó",
+    category: "Saúde",
+    min: 100000,
+    max: 200000,
+  },
+]
+
 function buildMonthTxs(
   userId: string,
   ym: string,
   accs: Record<string, Account>,
   cats: Record<string, Category>,
   today: Date,
+  r: () => number,
 ): TxPayload[] {
   const [yStr, mStr] = ym.split("-")
   const y = Number(yStr)
   const m = Number(mStr)
+  const pick = <T,>(arr: T[]) => arr[Math.floor(r() * arr.length)]!
+  const between = (min: number, max: number) =>
+    Math.round(min + r() * (max - min))
   const isFuture = (d: number) => new Date(y, m - 1, d) > today
   const isCurrentMonth =
     y === today.getFullYear() && m === today.getMonth() + 1
-  // Mês passado: 95% pago. Mês corrente: 70% pago. Futuro: tudo agendado.
   const paidChance = isFuture(1) ? 0 : isCurrentMonth ? 0.7 : 0.95
 
   const txs: TxPayload[] = []
@@ -119,8 +235,9 @@ function buildMonthTxs(
     amountCents: number,
     day: number,
     merchant: string,
+    isTransfer = false,
   ) => {
-    const safeDay = Math.min(day, daysInMonth(y, m))
+    const safeDay = Math.min(Math.max(1, day), daysInMonth(y, m))
     const dateStr = isoDate(y, m, safeDay)
     const future = isFuture(safeDay)
     const paid = !future && r() < paidChance
@@ -136,117 +253,274 @@ function buildMonthTxs(
       occurred_on: dateStr,
       paid_at: paid ? isoTs(y, m, safeDay, between(8, 20)) : null,
       merchant,
-      is_transfer: false,
+      is_transfer: isTransfer,
       source: "web",
     })
   }
 
-  // Salário — dia 5, R$ 7.900-8.700
+  // --- Salário base com variação (aumento em Jul/2025 após review) ---
+  const afterRaise = y > 2025 || (y === 2025 && m >= 7)
+  const salarioBase = afterRaise
+    ? between(870000, 920000)
+    : between(790000, 830000)
   add(
     "Nubank Conta",
     "Salário",
     "income",
-    between(790000, 870000),
+    salarioBase,
     5,
-    pick(["Salário TechCorp", "Salário TechCorp SA", "Pgto TechCorp"]),
+    pick(["Salário TechCorp", "Pgto TechCorp SA", "Salário TechCorp BR"]),
   )
-  // Freelance a cada 3 meses (m 3/6/9/12) R$ 800-2000
-  if (m % 3 === 0) {
+
+  // --- Eventos sazonais (13º, férias, PLR, restituição IR) ---
+  if (m === 11) {
+    // 1ª parcela do 13º em novembro
+    add(
+      "Nubank Conta",
+      "Salário",
+      "income",
+      Math.round(salarioBase / 2),
+      20,
+      "Adiantamento 13º salário",
+    )
+  }
+  if (m === 12) {
+    // 2ª parcela do 13º em dezembro
+    add(
+      "Nubank Conta",
+      "Salário",
+      "income",
+      Math.round(salarioBase / 2),
+      20,
+      "13º salário (2ª parcela)",
+    )
+  }
+  if (m === 2 || m === 3) {
+    // PLR anual da empresa
+    if (r() < 0.7) {
+      add(
+        "Nubank Conta",
+        "Salário",
+        "income",
+        between(250000, 550000),
+        15,
+        "PLR 2024 TechCorp",
+      )
+    }
+  }
+  if (m === 1 || m === 7) {
+    // Terço de férias
+    add(
+      "Nubank Conta",
+      "Salário",
+      "income",
+      Math.round(salarioBase / 3),
+      5,
+      "Terço de férias",
+    )
+  }
+  if (m >= 5 && m <= 8 && r() < 0.4) {
+    // Restituição IR
+    add(
+      "Nubank Conta",
+      "Rendimentos",
+      "income",
+      between(30000, 180000),
+      between(10, 28),
+      "Restituição IR 2024",
+    )
+  }
+  if (m % 3 === 0 && r() < 0.75) {
+    // Freelance trimestral
     add(
       "Nubank Conta",
       "Freelance",
       "income",
-      between(80000, 200000),
+      between(80000, 280000),
       between(12, 22),
       pick([
-        "Freelance design",
-        "Projeto X pagamento",
-        "Consultoria marketing",
+        "Freelance design Studio X",
+        "Consultoria marketing Paulista",
+        "Projeto branding",
       ]),
     )
   }
-  // Rendimentos (capital, non-formal) pequeno R$ 45-85 em investment
+
+  // --- Rendimentos automáticos das aplicações (todo mês, valores pequenos) ---
   add(
     "Nubank Renda Fixa",
     "Rendimentos",
     "income",
-    between(4500, 8500),
+    between(12000, 26000),
     between(1, 3),
-    "Rendimentos Renda Fixa",
+    "Rendimentos CDB",
   )
+  add(
+    "Nubank Cripto",
+    "Rendimentos",
+    "income",
+    between(2000, 12000),
+    between(1, 28),
+    pick(["Cashback cripto", "Staking Ether", "Valorização BTC"]),
+  )
+  if (r() < 0.5) {
+    add(
+      "Nubank Renda Variável",
+      "Rendimentos",
+      "income",
+      between(3000, 18000),
+      between(5, 20),
+      "Dividendos ITSA4",
+    )
+  }
 
-  // Aluguel — dia 10, R$ 2.200
-  add("Nubank Conta", "Moradia", "expense", 220000, 10, "Aluguel apto SP")
-  // Condomínio — dia 12, R$ 480
-  add("Nubank Conta", "Moradia", "expense", 48000, 12, "Condomínio")
-  // Luz/Internet alternando
+  // --- Aportes (transfer checking → investimentos) mensais ---
+  // Simula "poupança ativa": Larissa move grana pra investir.
+  if (afterRaise || r() < 0.75) {
+    const aporte = between(80000, 180000)
+    // Débito na conta
+    add(
+      "Nubank Conta",
+      null,
+      "expense",
+      aporte,
+      between(6, 10),
+      "Aporte Renda Fixa",
+      true,
+    )
+    // Crédito na RF
+    add(
+      "Nubank Renda Fixa",
+      null,
+      "income",
+      aporte,
+      between(6, 10),
+      "Aporte mensal",
+      true,
+    )
+  }
+  if (r() < 0.5) {
+    const aporte = between(20000, 80000)
+    add(
+      "Nubank Conta",
+      null,
+      "expense",
+      aporte,
+      between(6, 10),
+      "Aporte Cripto",
+      true,
+    )
+    add(
+      "Nubank Cripto",
+      null,
+      "income",
+      aporte,
+      between(6, 10),
+      "Compra BTC/ETH",
+      true,
+    )
+  }
+  if (r() < 0.35) {
+    const aporte = between(30000, 120000)
+    add(
+      "Nubank Conta",
+      null,
+      "expense",
+      aporte,
+      between(6, 10),
+      "Aporte Renda Variável",
+      true,
+    )
+    add(
+      "Nubank Renda Variável",
+      null,
+      "income",
+      aporte,
+      between(6, 10),
+      "Compra ações",
+      true,
+    )
+  }
+
+  // --- Despesas mensais recorrentes ---
+  add("Nubank Conta", "Moradia", "expense", 220000, 10, "Aluguel apto")
+  add("Nubank Conta", "Moradia", "expense", between(40000, 55000), 12, "Condomínio")
   add(
     "Nubank Conta",
     "Moradia",
     "expense",
-    between(12000, 22000),
-    between(14, 18),
-    pick(["Enel Luz", "Vivo Fibra"]),
+    between(12000, 24000),
+    14,
+    pick(["Enel Luz", "Light Energia", "Vivo Fibra", "Claro Internet"]),
+  )
+  add(
+    "Nubank Conta",
+    "Moradia",
+    "expense",
+    between(6000, 11000),
+    16,
+    "Conta de água",
   )
 
-  // Mercado 3-4x
-  const mercadoCount = between(3, 4)
+  const mercadoCount = between(3, 5)
   for (let i = 0; i < mercadoCount; i++) {
     add(
       "Nubank Conta",
       "Mercado",
       "expense",
-      between(8000, 28000),
+      between(8000, 32000),
       between(3, 28),
       pick([
         "Mercado Pão de Açúcar",
         "Carrefour Express",
         "iFood Mercado",
         "Shopee Supermercado",
-        "Extra Supermercado",
+        "Extra",
+        "Hortifruti",
+        "Dia Supermercado",
       ]),
     )
   }
 
-  // Uber/99 3-5x
-  const rideCount = between(3, 5)
+  const rideCount = between(4, 7)
   for (let i = 0; i < rideCount; i++) {
     add(
       "Nubank Conta",
       "Transporte",
       "expense",
-      between(1800, 5500),
+      between(1800, 6500),
       between(2, 28),
-      pick(["Uber", "99 Táxi", "Uber Trip"]),
+      pick(["Uber", "99 Táxi", "Uber Trip", "99 POP"]),
     )
   }
 
-  // iFood 2-3x
-  const foodCount = between(2, 3)
+  const foodCount = between(3, 5)
   for (let i = 0; i < foodCount; i++) {
     add(
       "Nubank Conta",
       "Alimentação",
       "expense",
-      between(3500, 11000),
+      between(3500, 13000),
       between(4, 27),
-      pick(["iFood", "iFood Restaurante", "Rappi"]),
+      pick(["iFood", "iFood Restaurante", "Rappi", "Domino's"]),
     )
   }
 
-  // Assinaturas
   add("Nubank Conta", "Assinaturas", "expense", 5590, 8, "Netflix")
   add("Nubank Conta", "Assinaturas", "expense", 2190, 15, "Spotify")
   add("Nubank Conta", "Lazer", "expense", 12990, 20, "Smart Fit Academia")
+  if (r() < 0.4) {
+    add("Nubank Conta", "Assinaturas", "expense", 2999, 22, "Amazon Prime")
+  }
 
-  // 1-2 compras no cartão (direto no Nubank Cartão)
-  const cardBuys = between(1, 2)
+  // Compras recreativas no cartão
+  const cardBuys = between(2, 4)
   for (let i = 0; i < cardBuys; i++) {
     add(
       "Nubank Cartão",
       "Cuidados Pessoais",
       "expense",
-      between(5000, 28000),
+      between(4000, 28000),
       between(2, 26),
       pick([
         "Amazon",
@@ -255,43 +529,66 @@ function buildMonthTxs(
         "Mercado Livre",
         "Amaro",
         "Renner",
+        "C&A",
+        "Farm",
       ]),
     )
   }
 
-  // Fatura Nubank Cartão — lump-sum na Nubank Conta, dia 25, unpaid
-  const cardInvoice = between(60000, 140000)
+  // Fatura Nubank Cartão (lump-sum) — dia 25, sempre unpaid
+  const cardInvoice = between(70000, 170000)
+  const invoiceDay = Math.min(25, daysInMonth(y, m))
+  const invoiceFuture = isFuture(invoiceDay)
   add(
     "Nubank Conta",
     "Assinaturas",
     "expense",
     cardInvoice,
-    25,
+    invoiceDay,
     "Nubank Cartão",
   )
-  // Remove o paid_at da última (fatura é sempre agendada)
-  const last = txs[txs.length - 1]!
-  last.paid_at = null
-
-  // Ocasional: saúde (1/3 dos meses), lazer (metade dos meses)
-  if (r() < 0.33) {
-    add(
-      "Nubank Conta",
-      "Saúde",
-      "expense",
-      between(8000, 22000),
-      between(6, 24),
-      pick(["Farmácia Pague Menos", "Consulta Dra Ana", "Drogasil"]),
-    )
+  // Esta tx acabou de ser adicionada. Remove paid_at (fatura fica
+  // agendada mesmo em meses passados — usuário pode ter pago ou não,
+  // mas pra Larissa deixamos sempre aberta pra demonstrar o cenário).
+  // EXCEÇÃO: se o mês já passou (não é corrente nem futuro), marca
+  // como paga pra não acumular dívida crescente.
+  const justAdded = txs[txs.length - 1]!
+  if (!invoiceFuture && !isCurrentMonth) {
+    justAdded.paid_at = isoTs(y, m, invoiceDay, 10)
+  } else {
+    justAdded.paid_at = null
   }
-  if (r() < 0.5) {
+
+  // --- Eventos "pontuais" da vida ---
+  for (const ev of ONEOFF_EVENTS) {
+    if (r() < ev.chance) {
+      add(
+        ev.account ?? "Nubank Conta",
+        ev.category,
+        ev.isIncome ? "income" : "expense",
+        between(ev.min, ev.max),
+        between(2, 28),
+        ev.label,
+      )
+    }
+  }
+
+  // --- Lazer básico ---
+  if (r() < 0.7) {
     add(
       "Nubank Conta",
       "Lazer",
       "expense",
-      between(3500, 12000),
+      between(3500, 14000),
       between(5, 26),
-      pick(["Cinema", "Bar do Zé", "Show Allianz Parque", "Livraria Cultura"]),
+      pick([
+        "Cinema",
+        "Bar do Zé",
+        "Restaurante japa",
+        "Show",
+        "Livraria Cultura",
+        "Sympla ingresso",
+      ]),
     )
   }
 
@@ -331,6 +628,11 @@ export async function POST(req: Request) {
     }
     const sb = createClient(url, svcKey, { auth: { persistSession: false } })
 
+    // --- Seed global: baseado em timestamp pra cada re-seed ter variedade ---
+    const globalSeed = Date.now() & 0xffffffff
+    const r = makeRng(globalSeed)
+    const picked = CITIES[Math.floor(r() * CITIES.length)]!
+
     // --- AUTH USER ---
     let userId: string
     const { data: list } = await sb.auth.admin.listUsers({ page: 1, perPage: 200 })
@@ -364,18 +666,23 @@ export async function POST(req: Request) {
       note("auth", `criado ${userId}`)
     }
 
-    // --- PROFILE ---
+    // --- PROFILE com cidade aleatória ---
     const { error: profErr } = await sb.from("profiles").upsert(
       {
         user_id: userId,
         display_name: DEMO_NAME,
         is_demo: true,
         onboarded_at: new Date().toISOString(),
+        city_name: picked.city,
+        uf: picked.uf,
+        lat: picked.lat,
+        lng: picked.lng,
+        gender: "F",
       },
       { onConflict: "user_id" },
     )
     if (profErr) throw new Error(`profile: ${profErr.message}`)
-    note("profile", "is_demo=true")
+    note("profile", `cidade: ${picked.city}/${picked.uf}`)
 
     // --- WIPE ---
     await sb.from("transactions").delete().eq("user_id", userId)
@@ -385,48 +692,57 @@ export async function POST(req: Request) {
     await sb.from("accounts").delete().eq("user_id", userId)
     note("wipe", "dados antigos removidos")
 
-    // --- ACCOUNTS ---
+    // --- ACCOUNTS (openings redistribuídas) ---
+    // Total líquido ~R$ 80k distribuído: checking baixo (2-3k), RF alta (25-35k),
+    // RV 6-10k, cripto 3-6k, poupança 6-9k. FGTS fora do líquido.
     const accountSeed = [
       {
         name: "Nubank Conta",
         type: "checking",
-        opening_balance_cents: 120000,
+        opening_balance_cents: 280000,
         sort_order: 0,
         balance_classification: "circulante",
       },
       {
         name: "Nubank Renda Fixa",
         type: "investment",
-        opening_balance_cents: 600000,
+        opening_balance_cents: 2800000,
         sort_order: 1,
+        balance_classification: "circulante",
+      },
+      {
+        name: "Nubank Renda Variável",
+        type: "investment",
+        opening_balance_cents: 750000,
+        sort_order: 2,
         balance_classification: "circulante",
       },
       {
         name: "Nubank Cripto",
         type: "crypto",
-        opening_balance_cents: 150000,
-        sort_order: 2,
+        opening_balance_cents: 420000,
+        sort_order: 3,
         balance_classification: "circulante",
       },
       {
         name: "Caixa Poupança",
         type: "savings",
-        opening_balance_cents: 250000,
-        sort_order: 3,
+        opening_balance_cents: 680000,
+        sort_order: 4,
         balance_classification: "circulante",
       },
       {
         name: "Caixa FGTS",
         type: "fgts",
         opening_balance_cents: 4200000,
-        sort_order: 4,
+        sort_order: 5,
         balance_classification: "nao_circulante",
       },
       {
         name: "Nubank Cartão",
         type: "credit",
         opening_balance_cents: 0,
-        sort_order: 5,
+        sort_order: 6,
         balance_classification: null,
       },
     ]
@@ -473,14 +789,14 @@ export async function POST(req: Request) {
     }
     note("categories", `${insertedCats?.length ?? 0} inseridas`)
 
-    // --- TRANSACTIONS (geradas deterministicamente) ---
+    // --- TRANSACTIONS ---
     const today = new Date()
     const months = monthsForRange(range)
     note("range", `${range} → ${months.length} meses`)
     const allTxs: TxPayload[] = []
     for (const ym of months) {
       allTxs.push(
-        ...buildMonthTxs(userId, ym, accountsByName, categoriesByName, today),
+        ...buildMonthTxs(userId, ym, accountsByName, categoriesByName, today, r),
       )
     }
     let txInserted = 0
@@ -495,7 +811,7 @@ export async function POST(req: Request) {
     }
     note("transactions", `${txInserted}/${allTxs.length} inseridas`)
 
-    // --- BALANCE ADJUSTMENTS (carro FIPE + financiamento) — só no mês corrente ---
+    // --- BALANCE ADJUSTMENTS ---
     const adjs = [
       {
         user_id: userId,
@@ -527,7 +843,7 @@ export async function POST(req: Request) {
     if (adjErr) note("adjustments", adjErr.message, false)
     else note("adjustments", `${adjs.length} inseridas`)
 
-    // --- BALANCE REGISTRIES (partida dobrada exemplos) ---
+    // --- BALANCE REGISTRIES ---
     const registriesSpec = [
       {
         period: "mensal:2026-04",
@@ -584,13 +900,9 @@ export async function POST(req: Request) {
     }
     note("registries", "2 pares partida-dobrada")
 
-    return NextResponse.json({ ok: true, userId, logs })
+    return NextResponse.json({ ok: true, userId, city: picked.city, logs })
   } catch (err) {
-    note(
-      "fatal",
-      err instanceof Error ? err.message : String(err),
-      false,
-    )
+    note("fatal", err instanceof Error ? err.message : String(err), false)
     return NextResponse.json(
       {
         ok: false,
