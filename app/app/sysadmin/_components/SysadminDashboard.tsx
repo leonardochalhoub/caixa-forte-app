@@ -5,6 +5,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   MapPin,
+  MousePointerClick,
   Minus,
   Search,
   Users,
@@ -51,6 +52,12 @@ interface Kpi {
   trend1m: { net: number; direction: "rising" | "falling" | "flat"; why?: string }
   trend6m: { net: number; direction: "rising" | "falling" | "flat"; why?: string }
   trend12m: { net: number; direction: "rising" | "falling" | "flat"; why?: string }
+  demoClicks: {
+    total: number
+    last24h: number
+    last7d: number
+    uniqueIps: number
+  }
 }
 
 interface Props {
@@ -135,6 +142,33 @@ export function SysadminDashboard({
           label="Pins no mapa"
           value={userPins.length.toString()}
           subtitle="usuários com cidade"
+        />
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          icon={<MousePointerClick className="h-4 w-4" />}
+          label="Demo · total de cliques"
+          value={kpi.demoClicks.total.toString()}
+          subtitle="landing → conta da Larissa"
+        />
+        <KpiCard
+          icon={<MousePointerClick className="h-4 w-4" />}
+          label="Demo · últimas 24h"
+          value={kpi.demoClicks.last24h.toString()}
+          subtitle="cliques no último dia"
+        />
+        <KpiCard
+          icon={<MousePointerClick className="h-4 w-4" />}
+          label="Demo · últimos 7 dias"
+          value={kpi.demoClicks.last7d.toString()}
+          subtitle="cliques na última semana"
+        />
+        <KpiCard
+          icon={<MousePointerClick className="h-4 w-4" />}
+          label="Demo · IPs únicos"
+          value={kpi.demoClicks.uniqueIps.toString()}
+          subtitle="visitantes distintos"
         />
       </section>
 

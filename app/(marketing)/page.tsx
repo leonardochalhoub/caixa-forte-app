@@ -1,5 +1,6 @@
+import Image from "next/image"
 import Link from "next/link"
-import { ArrowDown, ArrowUp } from "lucide-react"
+import { ArrowDown, ArrowRight, ArrowUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Footer } from "@/components/footer"
 import { DocsButton } from "@/components/DocsButton"
@@ -62,6 +63,39 @@ export default function LandingPage() {
           </Button>
           <DocsButton source="main" size="lg" label="Documentação" />
         </div>
+      </section>
+
+      <section className="mx-auto w-full max-w-2xl px-6 pb-10">
+        <Link
+          href="/api/demo/enter"
+          target="_blank"
+          rel="noopener"
+          className="group flex items-center gap-4 rounded-2xl border border-border bg-subtle/40 p-4 transition-colors hover:border-strong/30 hover:bg-subtle"
+        >
+          <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-border">
+            <Image
+              src="https://randomuser.me/api/portraits/women/79.jpg"
+              alt="Larissa Oliveira — conta de demonstração"
+              width={64}
+              height={64}
+              unoptimized
+              className="h-full w-full object-cover"
+            />
+          </div>
+          <div className="flex-1 space-y-0.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted">
+              Ver conta de exemplo
+            </p>
+            <p className="text-base font-medium text-strong">
+              Larissa Oliveira · São Paulo
+            </p>
+            <p className="text-xs text-body">
+              Explore o app como se fosse uma usuária real: 16 meses de
+              transações, cartões, investimentos, FGTS e um carro financiado.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-strong" />
+        </Link>
       </section>
 
       <section className="mx-auto w-full max-w-2xl px-6 pb-16">

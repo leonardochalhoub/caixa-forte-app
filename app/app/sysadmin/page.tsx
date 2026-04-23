@@ -41,7 +41,7 @@ export default async function SysadminPage() {
   const profilesRes = await db
     .from("profiles")
     .select(
-      "user_id, display_name, role, city_name, uf, lat, lng, gender, onboarded_at, created_at",
+      "user_id, display_name, role, city_name, uf, lat, lng, gender, onboarded_at, created_at, is_demo",
     )
   const profiles = (profilesRes.data ?? []) as Array<{
     user_id: string
@@ -54,8 +54,15 @@ export default async function SysadminPage() {
     gender: "M" | "F" | null
     onboarded_at: string | null
     created_at: string
+    is_demo: boolean | null
   }>
   const profileById = new Map(profiles.map((p) => [p.user_id, p]))
+  // Contas demo (Larissa, etc) são excluídas de TODAS as métricas de
+  // usuários reais — user count, balance médio, mapa, trend, categorias.
+  // Visíveis apenas via KPI dedicado de cliques na landing.
+  const demoUserIds = new Set(
+    profiles.filter((p) => p.is_demo).map((p) => p.user_id),
+  )
 
   const eventsRes = await db
     .from("login_events")
@@ -92,9 +99,16 @@ export default async function SysadminPage() {
     .select("account_id, type, amount_cents")
     .not("paid_at", "is", null)
 
+  // Contas pertencentes à conta demo — excluídas de todas as métricas.
+  const demoAccountIds = new Set(
+    (accountsFull ?? [])
+      .filter((a) => demoUserIds.has(a.user_id as string))
+      .map((a) => a.id as string),
+  )
   const flowByAccount = new Map<string, number>()
   for (const tx of flowsAll ?? []) {
     const aid = tx.account_id as string
+    if (demoAccountIds.has(aid)) continue
     const delta =
       tx.type === "income" ? Number(tx.amount_cents) : -Number(tx.amount_cents)
     flowByAccount.set(aid, (flowByAccount.get(aid) ?? 0) + delta)
@@ -106,6 +120,7 @@ export default async function SysadminPage() {
   const totalsByUserScratch = new Map<string, number>()
   for (const a of accountsFull ?? []) {
     const uid = a.user_id as string
+    if (demoUserIds.has(uid)) continue
     const opening = Number(a.opening_balance_cents ?? 0)
     const flow = flowByAccount.get(a.id as string) ?? 0
     totalsByUserScratch.set(uid, (totalsByUserScratch.get(uid) ?? 0) + opening + flow)
@@ -124,22 +139,24 @@ export default async function SysadminPage() {
     user_agent: string | null
   }>
 
-  const rows: UserRow[] = users.map((u) => {
-    const p = profileById.get(u.id)
-    const login = lastLoginMap.get(u.id) ?? { last: null, count: 0 }
-    return {
-      user_id: u.id,
-      email: u.email ?? null,
-      display_name: p?.display_name ?? null,
-      role: p?.role ?? "user",
-      city_name: p?.city_name ?? null,
-      uf: p?.uf ?? null,
-      onboarded_at: p?.onboarded_at ?? null,
-      created_at: u.created_at ?? new Date().toISOString(),
-      last_login_at: login.last,
-      login_count: login.count,
-    }
-  })
+  const rows: UserRow[] = users
+    .filter((u) => !demoUserIds.has(u.id))
+    .map((u) => {
+      const p = profileById.get(u.id)
+      const login = lastLoginMap.get(u.id) ?? { last: null, count: 0 }
+      return {
+        user_id: u.id,
+        email: u.email ?? null,
+        display_name: p?.display_name ?? null,
+        role: p?.role ?? "user",
+        city_name: p?.city_name ?? null,
+        uf: p?.uf ?? null,
+        onboarded_at: p?.onboarded_at ?? null,
+        created_at: u.created_at ?? new Date().toISOString(),
+        last_login_at: login.last,
+        login_count: login.count,
+      }
+    })
 
   const onboardedTotals = Array.from(totalsByUserScratch.values())
   const totalUsers = rows.length
@@ -187,12 +204,13 @@ export default async function SysadminPage() {
 
   const { data: flowsForTrend } = await admin
     .from("transactions")
-    .select("type, amount_cents, occurred_on, is_transfer, category_id")
+    .select("user_id, type, amount_cents, occurred_on, is_transfer, category_id")
     .gte("occurred_on", trendStartDate)
     .lte("occurred_on", trendEndDate)
   const trendByMonth = new Map<string, { income: number; expense: number }>()
   for (const m of months) trendByMonth.set(m, { income: 0, expense: 0 })
   for (const tx of flowsForTrend ?? []) {
+    if (demoUserIds.has((tx as { user_id: string }).user_id)) continue
     if ((tx as { is_transfer?: boolean }).is_transfer) continue
     const m = (tx.occurred_on as string).slice(0, 7)
     const entry = trendByMonth.get(m)
@@ -292,6 +310,7 @@ export default async function SysadminPage() {
   // Two numbers per bank, no per-user breakdown.
   const bankAgg = new Map<string, { count: number; totalCents: number }>()
   for (const a of accountsFull ?? []) {
+    if (demoUserIds.has(a.user_id as string)) continue
     const { bank } = splitBankAndSub((a.name as string | null) ?? "")
     if (!bank || bank.length < 2) continue
     const opening = Number(a.opening_balance_cents ?? 0)
@@ -326,12 +345,13 @@ export default async function SysadminPage() {
 
   const { data: allExpenseFlows } = await admin
     .from("transactions")
-    .select("category_id, amount_cents, type, is_transfer, occurred_on")
+    .select("user_id, category_id, amount_cents, type, is_transfer, occurred_on")
     .eq("type", "expense")
     .lte("occurred_on", todayIso)
   const byParent = new Map<string, number>()
   const bySub = new Map<string, { amount: number; parentName: string }>()
   for (const tx of allExpenseFlows ?? []) {
+    if (demoUserIds.has((tx as { user_id: string }).user_id)) continue
     if ((tx as { is_transfer?: boolean }).is_transfer) continue
     const catId = tx.category_id as string | null
     if (!catId) continue
@@ -363,6 +383,25 @@ export default async function SysadminPage() {
   // (Enriquecendo/Empobrecendo/Estável) carries the meaning; burning
   // tokens-per-minute on every admin page load isn't worth it. User-facing
   // explainer stays on /app where context matters more.
+  // Cliques no link "Ver conta de exemplo" da landing — KPI separado
+  // das métricas de usuários reais.
+  const { data: clicksAll } = await db
+    .from("demo_clicks")
+    .select("created_at, ip_hash")
+  const clicks = (clicksAll ?? []) as Array<{
+    created_at: string
+    ip_hash: string | null
+  }>
+  const now = Date.now()
+  const dayAgo = now - 24 * 60 * 60 * 1000
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000
+  const demoClicksStats = {
+    total: clicks.length,
+    last24h: clicks.filter((c) => new Date(c.created_at).getTime() >= dayAgo).length,
+    last7d: clicks.filter((c) => new Date(c.created_at).getTime() >= weekAgo).length,
+    uniqueIps: new Set(clicks.map((c) => c.ip_hash).filter(Boolean)).size,
+  }
+
   const kpi = {
     totalUsers,
     onboardedUsers,
@@ -374,6 +413,7 @@ export default async function SysadminPage() {
     trend1m,
     trend6m,
     trend12m,
+    demoClicks: demoClicksStats,
   }
 
   return (
