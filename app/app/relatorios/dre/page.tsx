@@ -408,28 +408,18 @@ export default async function DREPage({
         />
       </section>
 
-      {/* RECEITAS */}
+      {/* RECEITAS — só operacional (renda de trabalho), mesma regra do hero */}
       <section className="avoid-break space-y-3 rounded-2xl border-2 border-border p-5">
         <h2 className="font-serif text-xl text-strong">RECEITAS</h2>
 
         <div className="space-y-3">
-          <SubTotal label="Rendimentos do Trabalho" total={receitaTrabalho} />
-          {receitasArr
-            .filter((r) => r.isFormal)
-            .map((r) => (
-              <Group key={r.parentId} name={r.parentName} group={r} tone="income" />
-            ))}
-        </div>
-
-        <div className="space-y-3 pt-3">
-          <SubTotal label="Rendimentos de Capital e Outros" total={receitaCapital} />
-          {receitasArr.filter((r) => !r.isFormal).length === 0 ? (
+          {receitasArr.filter((r) => r.isFormal).length === 0 ? (
             <p className="pl-4 text-xs italic text-muted">
-              Sem rendimentos de capital no período.
+              Sem receitas operacionais no período.
             </p>
           ) : (
             receitasArr
-              .filter((r) => !r.isFormal)
+              .filter((r) => r.isFormal)
               .map((r) => (
                 <Group
                   key={r.parentId}
