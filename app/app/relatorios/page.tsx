@@ -9,25 +9,25 @@ const REPORTS = [
     href: "/app/relatorios/conciliacao",
     title: "Conciliação",
     description:
-      "Prova matemática do saldo: saldo inicial + entradas − saídas = saldo final, por conta. Exporta PDF e CSV.",
+      "Prova matemática do saldo: saldo inicial + entradas − saídas = saldo final, por conta. Exporta PDF e XLSX.",
     icon: CheckSquare,
     status: "disponível",
   },
   {
-    href: "#",
+    href: "/app/relatorios/fluxo-caixa",
     title: "Fluxo de caixa mensal",
     description:
-      "Série histórica de entrada × saída × saldo ao longo dos meses, com categorias que mais pesam.",
+      "Série histórica de entrada × saída × saldo ao longo dos meses, com categoria que mais pesou em cada mês. Exporta PDF e XLSX.",
     icon: TrendingUp,
-    status: "em breve",
+    status: "disponível",
   },
   {
-    href: "#",
+    href: "/app/relatorios/categorias",
     title: "Gastos por categoria",
     description:
-      "Ranking de categorias e subcategorias no período, ordenadas por valor.",
+      "Ranking de categorias e subcategorias no período escolhido, com percentual do total e barras visuais. Exporta PDF e XLSX.",
     icon: Tags,
-    status: "em breve",
+    status: "disponível",
   },
 ] as const
 

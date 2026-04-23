@@ -350,7 +350,7 @@ export default async function ConciliacaoPage({
       toReais(r.endBalance),
     ]),
     ...fgts.map((r) => [
-      `${r.account.name} (FGTS, não entra no saldo)`,
+      `${r.account.name} (não entra no saldo)`,
       r.account.type,
       toReais(r.startBalance),
       toReais(r.incomeCents),
@@ -577,7 +577,7 @@ export default async function ConciliacaoPage({
                     className="border-t border-dashed border-border text-muted"
                   >
                     <td className="px-3 py-2 italic">
-                      {r.account.name} · FGTS (não entra no saldo)
+                      {r.account.name} <span className="text-[10px] uppercase tracking-wider">(não entra no saldo)</span>
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
                       {formatBRL(r.startBalance)}
