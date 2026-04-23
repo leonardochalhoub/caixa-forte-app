@@ -59,6 +59,37 @@ export async function renameAccount(input: z.infer<typeof RenameAccountSchema>) 
   revalidatePath("/app/contas")
 }
 
+const ClassifyAccountSchema = z.object({
+  id: z.string().uuid(),
+  classification: z.enum(["circulante", "nao_circulante"]).nullable(),
+})
+
+export async function setAccountBalanceClassification(
+  input: z.infer<typeof ClassifyAccountSchema>,
+) {
+  const user = await requireUser()
+  const parsed = ClassifyAccountSchema.parse(input)
+  const supabase = await createServerClient()
+  const { error } = await (
+    supabase as unknown as {
+      from: (t: string) => {
+        update: (row: object) => {
+          eq: (k: string, v: unknown) => {
+            eq: (k: string, v: unknown) => Promise<{ error: { message: string } | null }>
+          }
+        }
+      }
+    }
+  )
+    .from("accounts")
+    .update({ balance_classification: parsed.classification })
+    .eq("id", parsed.id)
+    .eq("user_id", user.id)
+  if (error) throw new Error(error.message)
+  revalidatePath("/app/contas")
+  revalidatePath("/app/relatorios/balanco")
+}
+
 export async function archiveAccount(id: string) {
   const user = await requireUser()
   const supabase = await createServerClient()

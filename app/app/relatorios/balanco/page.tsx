@@ -9,10 +9,10 @@ import { formatBRL } from "@/lib/money"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { BalancoPeriodSelector } from "./_components/BalancoPeriodSelector"
 import {
-  AddLineButton,
   AdjustmentActions,
   type Adjustment,
 } from "./_components/AdjustmentForm"
+import { AddRegistryButton } from "./_components/RegistryForm"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
 
 const MONTH_NAMES_PT = [
@@ -46,6 +46,7 @@ type AccountRow = {
   name: string
   type: string
   opening_balance_cents: number | null
+  balance_classification?: "circulante" | "nao_circulante" | null
 }
 
 interface SearchParams {
@@ -87,10 +88,13 @@ const TYPE_CLASSIFICATION = {
   checking: "ativo_circulante_disponivel",
   cash: "ativo_circulante_disponivel",
   wallet: "ativo_circulante_disponivel",
-  savings: "ativo_nc_investimento_renda_fixa",
-  poupanca: "ativo_nc_investimento_renda_fixa",
-  investment: "ativo_nc_investimento_renda_variavel",
-  crypto: "ativo_nc_investimento_cripto",
+  // Todas aplicações financeiras (renda fixa, renda variável, cripto)
+  // entram em Ativo Circulante. Pra pessoa física no BR, essas são
+  // líquidas o suficiente: poupança/CDB D+0, ações D+2, cripto 24/7.
+  savings: "ativo_circulante_renda_fixa",
+  poupanca: "ativo_circulante_renda_fixa",
+  investment: "ativo_circulante_renda_variavel",
+  crypto: "ativo_circulante_cripto",
   fgts: "ativo_nc_bloqueado",
   credit: "passivo_circulante_cartoes",
 } as const
@@ -99,9 +103,9 @@ type ClassificationKey = (typeof TYPE_CLASSIFICATION)[keyof typeof TYPE_CLASSIFI
 
 const SECTION_LABELS: Record<ClassificationKey, string> = {
   ativo_circulante_disponivel: "Disponibilidades",
-  ativo_nc_investimento_renda_fixa: "Renda Fixa",
-  ativo_nc_investimento_renda_variavel: "Renda Variável",
-  ativo_nc_investimento_cripto: "Cripto",
+  ativo_circulante_renda_fixa: "Renda Fixa",
+  ativo_circulante_renda_variavel: "Renda Variável",
+  ativo_circulante_cripto: "Cripto",
   ativo_nc_bloqueado: "Bloqueado (FGTS)",
   passivo_circulante_cartoes: "Cartões de Crédito",
 }
@@ -131,9 +135,9 @@ export default async function BalancoPage({
     { data: profileRaw },
     { data: adjustmentsRaw },
   ] = await Promise.all([
-    supabase
+    untyped(supabase)
       .from("accounts")
-      .select("id, name, type, opening_balance_cents")
+      .select("id, name, type, opening_balance_cents, balance_classification")
       .eq("user_id", user.id)
       .is("archived_at", null),
     untyped(supabase)
@@ -154,6 +158,29 @@ export default async function BalancoPage({
       .eq("user_id", user.id)
       .eq("period", periodStr),
   ])
+
+  const { data: registriesRaw } = await untyped(supabase)
+    .from("balance_registries")
+    .select(
+      "id, period, kind, description, amount_cents, debit_section, debit_label, credit_section, credit_label, note, created_at",
+    )
+    .eq("user_id", user.id)
+    .eq("period", periodStr)
+    .order("created_at", { ascending: false })
+  type RegistryRow = {
+    id: string
+    period: string
+    kind: string
+    description: string
+    amount_cents: number
+    debit_section: string
+    debit_label: string
+    credit_section: string
+    credit_label: string
+    note: string | null
+    created_at: string
+  }
+  const registries = (registriesRaw ?? []) as RegistryRow[]
 
   type AdjRow = {
     id: string
@@ -325,8 +352,28 @@ export default async function BalancoPage({
 
   const buckets = new Map<ClassificationKey, Bucket>()
   for (const a of accs) {
-    const key = TYPE_CLASSIFICATION[a.type as keyof typeof TYPE_CLASSIFICATION]
-    if (!key) continue
+    const defaultKey =
+      TYPE_CLASSIFICATION[a.type as keyof typeof TYPE_CLASSIFICATION]
+    if (!defaultKey) continue
+    // Override do user: se marcou nao_circulante e default é Ativo
+    // Circulante, move pro bucket "imobilizado" (mais próximo de
+    // "NC genérico"). Se marcou circulante mas default é NC (ex:
+    // FGTS), move pra Disponibilidades.
+    let key: ClassificationKey = defaultKey
+    if (a.balance_classification === "nao_circulante") {
+      if (defaultKey.startsWith("ativo_circulante")) {
+        // vai pra "ativo_nc_investimentos_outros" subseção — mas
+        // preciso garantir que essa key é Classification válida.
+        // Simplificação: trata como bloqueado se fgts-like, senão
+        // cria bucket dinâmico. Por enquanto, marca via section key
+        // que já existe.
+        key = "ativo_nc_bloqueado"
+      }
+    } else if (a.balance_classification === "circulante") {
+      if (defaultKey === "ativo_nc_bloqueado") {
+        key = "ativo_circulante_disponivel"
+      }
+    }
     const cents = balanceAt(a, snapshotDate)
     const b = buckets.get(key) ?? {
       key,
@@ -345,30 +392,35 @@ export default async function BalancoPage({
 
   // Monta estrutura do Balanço brasileiro
   const ativoCirculanteDisponivel = buckets.get("ativo_circulante_disponivel")
-  const ativoNCRendaFixa = buckets.get("ativo_nc_investimento_renda_fixa")
-  const ativoNCRendaVar = buckets.get("ativo_nc_investimento_renda_variavel")
-  const ativoNCCripto = buckets.get("ativo_nc_investimento_cripto")
+  const ativoCirculanteRendaFixa = buckets.get("ativo_circulante_renda_fixa")
+  const ativoCirculanteRendaVar = buckets.get("ativo_circulante_renda_variavel")
+  const ativoCirculanteCripto = buckets.get("ativo_circulante_cripto")
   const ativoNCBloqueado = buckets.get("ativo_nc_bloqueado")
   const passivoCartoes = buckets.get("passivo_circulante_cartoes")
 
-  const ativoCirculanteTotal =
+  const ativoCirculanteDisponivelTotal =
     (ativoCirculanteDisponivel?.total ?? 0) +
     sumAdj("ativo_circulante_disponivel") +
     sumAdj("ativo_circulante_outros")
-  const ativoNCInvestimentosTotal =
-    (ativoNCRendaFixa?.total ?? 0) +
-    (ativoNCRendaVar?.total ?? 0) +
-    (ativoNCCripto?.total ?? 0) +
-    sumAdj("ativo_nc_investimento_renda_fixa") +
-    sumAdj("ativo_nc_investimento_renda_variavel") +
-    sumAdj("ativo_nc_investimento_cripto") +
-    sumAdj("ativo_nc_investimentos_outros")
+  const ativoCirculanteRendaFixaTotal =
+    (ativoCirculanteRendaFixa?.total ?? 0) +
+    sumAdj("ativo_circulante_renda_fixa")
+  const ativoCirculanteRendaVarTotal =
+    (ativoCirculanteRendaVar?.total ?? 0) +
+    sumAdj("ativo_circulante_renda_variavel")
+  const ativoCirculanteCriptoTotal =
+    (ativoCirculanteCripto?.total ?? 0) +
+    sumAdj("ativo_circulante_cripto")
+  const ativoCirculanteTotal =
+    ativoCirculanteDisponivelTotal +
+    ativoCirculanteRendaFixaTotal +
+    ativoCirculanteRendaVarTotal +
+    ativoCirculanteCriptoTotal
   const ativoNCBloqueadoTotal =
     (ativoNCBloqueado?.total ?? 0) + sumAdj("ativo_nc_bloqueado")
   const ativoNCImobilizadoTotal = sumAdj("ativo_nc_imobilizado")
   const ativoNCIntangivelTotal = sumAdj("ativo_nc_intangivel")
   const ativoNCTotal =
-    ativoNCInvestimentosTotal +
     ativoNCBloqueadoTotal +
     ativoNCImobilizadoTotal +
     ativoNCIntangivelTotal
@@ -445,18 +497,18 @@ export default async function BalancoPage({
       l.cents / 100,
     ]) ?? []),
     ["  Ativo Não Circulante"],
-    ["    Renda Fixa", (ativoNCRendaFixa?.total ?? 0) / 100],
-    ...(ativoNCRendaFixa?.lines.map((l) => [
+    ["    Renda Fixa", (ativoCirculanteRendaFixa?.total ?? 0) / 100],
+    ...(ativoCirculanteRendaFixa?.lines.map((l) => [
       `      ${l.accountName}`,
       l.cents / 100,
     ]) ?? []),
-    ["    Renda Variável", (ativoNCRendaVar?.total ?? 0) / 100],
-    ...(ativoNCRendaVar?.lines.map((l) => [
+    ["    Renda Variável", (ativoCirculanteRendaVar?.total ?? 0) / 100],
+    ...(ativoCirculanteRendaVar?.lines.map((l) => [
       `      ${l.accountName}`,
       l.cents / 100,
     ]) ?? []),
-    ["    Cripto", (ativoNCCripto?.total ?? 0) / 100],
-    ...(ativoNCCripto?.lines.map((l) => [
+    ["    Cripto", (ativoCirculanteCripto?.total ?? 0) / 100],
+    ...(ativoCirculanteCripto?.lines.map((l) => [
       `      ${l.accountName}`,
       l.cents / 100,
     ]) ?? []),
@@ -489,11 +541,14 @@ export default async function BalancoPage({
           months={periodOptions}
           years={yearOptions}
         />
-        <PrintActions
-          rows={xlsxRows}
-          filename={`balanco-${periodStr.replace(":", "-")}.xlsx`}
-          sheetName={period.label}
-        />
+        <div className="flex items-center gap-2">
+          <AddRegistryButton period={periodStr} />
+          <PrintActions
+            rows={xlsxRows}
+            filename={`balanco-${periodStr.replace(":", "-")}.xlsx`}
+            sheetName={period.label}
+          />
+        </div>
       </div>
 
       <header className="space-y-1 border-b border-border pb-4">
@@ -520,47 +575,62 @@ export default async function BalancoPage({
               title="Ativo Circulante"
               total={ativoCirculanteTotal}
             />
-            <Bucket bucket={ativoCirculanteDisponivel} />
-            <AdjList
-              items={adjustmentsBySection.get("ativo_circulante_disponivel") ?? []}
-            />
-            <AdjList
-              items={adjustmentsBySection.get("ativo_circulante_outros") ?? []}
-              hint="Outros ativos circulantes"
-            />
-            <div className="no-print pl-4">
-              <AddLineButton
-                period={periodStr}
-                section="ativo_circulante_outros"
-                hint="Recebíveis curto prazo, adiantamentos, estoques, etc."
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Disponibilidades"
+                total={ativoCirculanteDisponivelTotal}
+              />
+              <Bucket bucket={ativoCirculanteDisponivel} />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("ativo_circulante_disponivel") ?? []
+                }
+              />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("ativo_circulante_outros") ?? []
+                }
+                hint="Outros circulantes"
+              />
+            </div>
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Aplicações de Renda Fixa"
+                total={ativoCirculanteRendaFixaTotal}
+              />
+              <Bucket bucket={ativoCirculanteRendaFixa} />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("ativo_circulante_renda_fixa") ?? []
+                }
+              />
+            </div>
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Renda Variável"
+                total={ativoCirculanteRendaVarTotal}
+              />
+              <Bucket bucket={ativoCirculanteRendaVar} />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("ativo_circulante_renda_variavel") ?? []
+                }
+              />
+            </div>
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Cripto"
+                total={ativoCirculanteCriptoTotal}
+              />
+              <Bucket bucket={ativoCirculanteCripto} />
+              <AdjList
+                items={adjustmentsBySection.get("ativo_circulante_cripto") ?? []}
               />
             </div>
           </div>
 
           <div className="space-y-2 pt-3">
             <SectionHeader title="Ativo Não Circulante" total={ativoNCTotal} />
-            <div className="pl-2">
-              <SubSectionHeader
-                title="Investimentos"
-                total={ativoNCInvestimentosTotal}
-              />
-              <Bucket bucket={ativoNCRendaFixa} />
-              <Bucket bucket={ativoNCRendaVar} />
-              <Bucket bucket={ativoNCCripto} />
-              <AdjList
-                items={
-                  adjustmentsBySection.get("ativo_nc_investimentos_outros") ?? []
-                }
-                hint="Outros investimentos"
-              />
-              <div className="no-print pl-4">
-                <AddLineButton
-                  period={periodStr}
-                  section="ativo_nc_investimentos_outros"
-                  hint="Participações, fundos, investimentos não trackeados"
-                />
-              </div>
-            </div>
             {ativoNCBloqueadoTotal > 0 && (
               <div className="pl-2">
                 <SubSectionHeader
@@ -581,13 +651,6 @@ export default async function BalancoPage({
               <AdjList
                 items={adjustmentsBySection.get("ativo_nc_imobilizado") ?? []}
               />
-              <div className="no-print pl-4">
-                <AddLineButton
-                  period={periodStr}
-                  section="ativo_nc_imobilizado"
-                  hint="Imóveis, veículos, equipamentos (valor de mercado)"
-                />
-              </div>
             </div>
             <div className="pl-2">
               <SubSectionHeader
@@ -597,13 +660,6 @@ export default async function BalancoPage({
               <AdjList
                 items={adjustmentsBySection.get("ativo_nc_intangivel") ?? []}
               />
-              <div className="no-print pl-4">
-                <AddLineButton
-                  period={periodStr}
-                  section="ativo_nc_intangivel"
-                  hint="Marcas, patentes, software próprio, domínios"
-                />
-              </div>
             </div>
           </div>
 
@@ -634,13 +690,6 @@ export default async function BalancoPage({
               items={adjustmentsBySection.get("passivo_circulante_outros") ?? []}
               hint="Outros passivos circulantes"
             />
-            <div className="no-print pl-4">
-              <AddLineButton
-                period={periodStr}
-                section="passivo_circulante_outros"
-                hint="Contas a pagar, salários, impostos, empréstimo curto prazo"
-              />
-            </div>
           </div>
 
           <div className="space-y-2 pt-3">
@@ -650,13 +699,6 @@ export default async function BalancoPage({
                 adjustmentsBySection.get("passivo_nc_financiamentos") ?? []
               }
             />
-            <div className="no-print pl-4">
-              <AddLineButton
-                period={periodStr}
-                section="passivo_nc_financiamentos"
-                hint="Financiamento imóvel, empréstimo longo, consignado"
-              />
-            </div>
           </div>
 
           <div className="flex items-baseline justify-between border-t border-border pt-3">
@@ -732,6 +774,39 @@ export default async function BalancoPage({
           no Balanço de abril, o fluxo mostra como chegou até X.
         </p>
       </section>
+
+      {registries.length > 0 && (
+        <section className="avoid-break space-y-2 rounded-xl border border-border p-4">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-strong">
+            Histórico de registros do período
+          </h2>
+          <ul className="space-y-1.5">
+            {registries.map((r) => (
+              <li
+                key={r.id}
+                className="flex items-start justify-between gap-3 border-b border-border/50 pb-1.5 text-xs last:border-0"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-strong">
+                    {r.description}{" "}
+                    <span className="text-[10px] uppercase tracking-wider text-muted">
+                      · {r.kind.replace(/_/g, " ")}
+                    </span>
+                  </p>
+                  <p className="text-[11px] text-muted">
+                    <span className="text-income">D</span> {r.debit_label} →{" "}
+                    <span className="text-expense">C</span> {r.credit_label}
+                    {r.note && ` · ${r.note}`}
+                  </p>
+                </div>
+                <span className="font-mono tabular-nums text-body">
+                  {formatBRL(r.amount_cents)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <footer className="border-t border-border pt-4 text-[10px] text-muted">
         Caixa Forte · balanço contábil · Modelo brasileiro (CPC/Lei 6.404
