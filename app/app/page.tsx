@@ -37,9 +37,9 @@ export default async function DashboardPage() {
     { data: upcomingTx },
     { data: pendingCaptures },
   ] = await Promise.all([
-    supabase
+    untyped(supabase)
       .from("transactions")
-      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id")
+      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at")
       .eq("user_id", user.id)
       .gte("occurred_on", oldestStart),
     // "Últimas transações" no dashboard só mostra movimentações das
@@ -131,6 +131,9 @@ export default async function DashboardPage() {
     [
       ...(monthTx ?? [])
         .filter((t) => !creditAccountIdSet.has(t.account_id))
+        // KPIs refletem DINHEIRO QUE MEXEU de fato — agendadas
+        // (paid_at=null) ainda não impactam Entrada/Saída/Perda do mês.
+        .filter((t) => t.paid_at != null)
         .map((t) => ({
           occurred_on: t.occurred_on,
           type: t.type as "income" | "expense",
