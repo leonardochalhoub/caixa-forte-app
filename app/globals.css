@@ -83,7 +83,7 @@
    em cada classe relevante. Uso CSS vars + rules específicas pra
    garantir cascata mesmo quando o page.tsx ainda está em .light no
    <html>. Acentuação verde/vermelha mais saturada pra ler no escuro. */
-.report-dark {
+.dark .report-root {
   --color-canvas: #0a0a0c;
   --color-subtle: #141417;
   --color-border: #27272a;
@@ -101,93 +101,93 @@
 }
 /* Cores explícitas — evita text-body "sumir" quando Tailwind resolve
    vars em tempo de build e o escopo cascateado falha. */
-.report-dark,
-.report-dark p,
-.report-dark h1,
-.report-dark h2,
-.report-dark h3,
-.report-dark td,
-.report-dark th,
-.report-dark li,
-.report-dark summary {
+.dark .report-root,
+.dark .report-root p,
+.dark .report-root h1,
+.dark .report-root h2,
+.dark .report-root h3,
+.dark .report-root td,
+.dark .report-root th,
+.dark .report-root li,
+.dark .report-root summary {
   color: #d4d4d8;
 }
-.report-dark .text-strong,
-.report-dark .text-ink,
-.report-dark strong,
-.report-dark h1,
-.report-dark h2,
-.report-dark h3,
-.report-dark thead th {
+.dark .report-root .text-strong,
+.dark .report-root .text-ink,
+.dark .report-root strong,
+.dark .report-root h1,
+.dark .report-root h2,
+.dark .report-root h3,
+.dark .report-root thead th {
   color: #fafafa !important;
 }
-.report-dark .text-body {
+.dark .report-root .text-body {
   color: #d4d4d8 !important;
 }
-.report-dark .text-muted,
-.report-dark .italic {
+.dark .report-root .text-muted,
+.dark .report-root .italic {
   color: #a1a1aa !important;
 }
-.report-dark .text-income {
+.dark .report-root .text-income {
   color: #4ade80 !important;
 }
-.report-dark .text-expense {
+.dark .report-root .text-expense {
   color: #f87171 !important;
 }
-.report-dark code {
+.dark .report-root code {
   color: #e4e4e7 !important;
   background: #27272a !important;
 }
-.report-dark .border,
-.report-dark .border-t,
-.report-dark .border-b,
-.report-dark .border-l,
-.report-dark .border-r,
-.report-dark .border-t-2,
-.report-dark .border-b-2,
-.report-dark table,
-.report-dark thead,
-.report-dark tfoot,
-.report-dark tr,
-.report-dark td,
-.report-dark th {
+.dark .report-root .border,
+.dark .report-root .border-t,
+.dark .report-root .border-b,
+.dark .report-root .border-l,
+.dark .report-root .border-r,
+.dark .report-root .border-t-2,
+.dark .report-root .border-b-2,
+.dark .report-root table,
+.dark .report-root thead,
+.dark .report-root tfoot,
+.dark .report-root tr,
+.dark .report-root td,
+.dark .report-root th {
   border-color: #27272a !important;
 }
-.report-dark .bg-subtle,
-.report-dark thead {
+.dark .report-root .bg-subtle,
+.dark .report-root thead {
   background: #141417 !important;
 }
-.report-dark tfoot {
+.dark .report-root tfoot {
   background: #17171b !important;
 }
-.report-dark tfoot tr.border-t-2 {
+.dark .report-root tfoot tr.border-t-2 {
   border-top-color: #3f3f46 !important;
 }
-.report-dark .rounded-2xl,
-.report-dark .rounded-xl {
+.dark .report-root .rounded-2xl,
+.dark .report-root .rounded-xl {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
-.report-dark section > div.overflow-x-auto {
+.dark .report-root section > div.overflow-x-auto {
   background: #111114;
   border-color: #27272a;
 }
 /* Zera qualquer bg-canvas/branco que possa escapar. No escuro, só texto
    é claro — backgrounds ficam todos escuros, cor única por camada. */
-.report-dark .bg-canvas,
-.report-dark .bg-base,
-.report-dark [class*="bg-white"] {
+.dark .report-root .bg-canvas,
+.dark .report-root .bg-base,
+.dark .report-root [class*="bg-white"] {
   background: #0a0a0c !important;
 }
-.report-dark .bg-gradient-to-br,
-.report-dark [class*="bg-gradient"] {
+.dark .report-root .bg-gradient-to-br,
+.dark .report-root [class*="bg-gradient"] {
   background: #111114 !important;
 }
 /* Tabela: sem linhas zebradas claras, só divisórias escuras */
-.report-dark tr,
-.report-dark tbody tr {
+.dark .report-root tr,
+.dark .report-root tbody tr {
   background: transparent !important;
 }
-.report-dark tbody tr:nth-child(even) {
+.dark .report-root tbody tr:nth-child(even) {
   background: #0e0e11 !important;
 }
 
@@ -199,11 +199,14 @@
 @media print {
   html,
   body {
-    background: #fff !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
     font-size: 10pt;
     line-height: 1.35;
+  }
+  html:not(.dark),
+  html:not(.dark) body {
+    background: #fff !important;
   }
   .no-print,
   nav {
@@ -224,31 +227,82 @@
     border-color: #9ca3af !important;
     box-shadow: none !important;
   }
-  /* Dark print — mantém tons escuros do "report-dark" no PDF.
-     Algumas impressoras podem pedir configuração "imprimir em cores
-     ou fundos" no diálogo pra o fundo escuro sair. */
-  .report-dark {
-    background: #09090b !important;
+  /* Dark print — override completo do preto-em-branco default. Usa
+     seletores de alta especificidade pra vencer ambos os `.report-root *`
+     e qualquer color inherit que tente virar #000. */
+  html.dark,
+  html.dark body,
+  .dark .report-root {
+    background: #0a0a0c !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    forced-color-adjust: none !important;
+  }
+  .dark .report-root,
+  .dark .report-root *,
+  .dark .report-root p,
+  .dark .report-root td,
+  .dark .report-root th,
+  .dark .report-root h1,
+  .dark .report-root h2,
+  .dark .report-root h3,
+  .dark .report-root li,
+  .dark .report-root span,
+  .dark .report-root code,
+  .dark .report-root summary {
+    color: #e4e4e7 !important;
+    background: transparent !important;
+    border-color: #27272a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .dark .report-root h1,
+  .dark .report-root h2,
+  .dark .report-root h3,
+  .dark .report-root .text-strong,
+  .dark .report-root .text-ink,
+  .dark .report-root strong,
+  .dark .report-root thead th,
+  .dark .report-root tfoot td {
     color: #fafafa !important;
   }
-  .report-dark * {
-    color: #fafafa !important;
-    border-color: #3f3f46 !important;
+  .dark .report-root .text-body,
+  .dark .report-root tbody td,
+  .dark .report-root tbody td * {
+    color: #e4e4e7 !important;
   }
-  .report-dark .text-income {
-    color: #22c55e !important;
-  }
-  .report-dark .text-expense {
-    color: #f87171 !important;
-  }
-  .report-dark .text-muted,
-  .report-dark .italic {
+  .dark .report-root .text-muted,
+  .dark .report-root .italic {
     color: #a1a1aa !important;
   }
-  .report-dark thead,
-  .report-dark tfoot,
-  .report-dark .bg-subtle {
-    background: #18181b !important;
+  .dark .report-root .text-income {
+    color: #4ade80 !important;
+  }
+  .dark .report-root .text-expense {
+    color: #f87171 !important;
+  }
+  .dark .report-root thead,
+  .dark .report-root thead tr,
+  .dark .report-root thead th {
+    background: #141417 !important;
+  }
+  .dark .report-root tfoot,
+  .dark .report-root tfoot tr,
+  .dark .report-root tfoot td,
+  .dark .report-root .bg-subtle {
+    background: #141417 !important;
+  }
+  .dark .report-root tbody tr:nth-child(even) td {
+    background: #0e0e11 !important;
+  }
+  .dark .report-root .rounded-xl,
+  .dark .report-root .rounded-2xl,
+  .dark .report-root .overflow-x-auto {
+    background: #111114 !important;
+  }
+  .dark .report-root svg {
+    fill: currentColor !important;
+    stroke: currentColor !important;
   }
   /* Compact font scale — screen "text-xs"/"text-sm" look too small on paper. */
   .report-root .text-\[10px\],

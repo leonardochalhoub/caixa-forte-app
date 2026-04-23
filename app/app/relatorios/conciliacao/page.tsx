@@ -9,7 +9,6 @@ import { formatBRL } from "@/lib/money"
 import { formatPtBrDateShort } from "@/lib/time"
 import { PrintActions } from "./_components/PrintActions"
 import { PeriodSelector } from "./_components/PeriodSelector"
-import { ThemeToggle } from "./_components/ThemeToggle"
 
 const MONTH_NAMES_PT = [
   "Janeiro",
@@ -56,7 +55,6 @@ type PendingParsed = {
 
 interface SearchParams {
   periodo?: string
-  tema?: string
 }
 
 function monthBounds(ym: string): { start: string; end: string; label: string } {
@@ -86,7 +84,6 @@ export default async function ConciliacaoPage({
   const defaultYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
   const periodo = sp.periodo ?? defaultYm
   const isFullHistory = periodo === "tudo"
-  const isDarkTheme = sp.tema === "escuro"
 
   const [
     { data: accounts },
@@ -365,23 +362,18 @@ export default async function ConciliacaoPage({
   const fgtsEndBalance = fgts.reduce((s, r) => s + r.endBalance, 0)
 
   return (
-    <article
-      className={`report-root space-y-8 ${isDarkTheme ? "report-dark" : ""}`}
-    >
+    <article className="report-root space-y-8">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
         <PeriodSelector
           current={periodo}
           options={availableMonths}
           fullHistoryLabel="Histórico completo"
         />
-        <div className="flex items-center gap-2">
-          <ThemeToggle current={isDarkTheme ? "escuro" : "claro"} />
-          <PrintActions
-            rows={xlsxRows}
-            filename={`conciliacao-${isFullHistory ? "historico" : periodo}.xlsx`}
-            sheetName={isFullHistory ? "Histórico" : periodLabel}
-          />
-        </div>
+        <PrintActions
+          rows={xlsxRows}
+          filename={`conciliacao-${isFullHistory ? "historico" : periodo}.xlsx`}
+          sheetName={isFullHistory ? "Histórico" : periodLabel}
+        />
       </div>
 
       <header className="space-y-1 border-b border-border pb-4">

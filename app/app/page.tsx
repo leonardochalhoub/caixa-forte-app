@@ -147,12 +147,61 @@ export default async function DashboardPage() {
     flowByAccount.set(t.account_id, (flowByAccount.get(t.account_id) ?? 0) + delta)
   }
 
-  const accountsWithBalance = (accounts ?? []).map((a) => ({
-    id: a.id,
-    name: a.name,
-    type: a.type as AccountType,
-    balanceCents: Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0),
-  }))
+  // Detecta dívida "a pagar" de cartão a partir de merchants tipo
+  // "<banco> Cartão <mês>" em qualquer conta — útil quando o user
+  // registra a fatura como agendada na corrente em vez de itemizar as
+  // compras no cartão. Só entra na dívida exibida se paid_at=null.
+  const normalizeStr = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const bankKey = (name: string): string => {
+    const cleaned = name.replace(/cart[ãa]o.*/i, "").trim()
+    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
+  }
+  // Busca todas as tx do user (incluindo agendadas) pra detectar
+  // lump-sums. Limitado a expense is_transfer=false.
+  const { data: allTxRaw } = await untyped(supabase)
+    .from("transactions")
+    .select("account_id, type, amount_cents, merchant, paid_at, is_transfer")
+    .eq("user_id", user.id)
+    .eq("type", "expense")
+  const allExpenseTx = (allTxRaw ?? []) as Array<{
+    account_id: string
+    amount_cents: number
+    merchant: string | null
+    paid_at: string | null
+    is_transfer: boolean | null
+  }>
+  const detectedCardDebt = new Map<string, number>()
+  for (const card of (accounts ?? []).filter(
+    (a) => (a.type as AccountType) === "credit",
+  )) {
+    const key = bankKey(card.name)
+    if (!key) continue
+    let debt = 0
+    for (const t of allExpenseTx) {
+      if (t.is_transfer) continue
+      if (t.account_id === card.id) continue // já contado em flowByAccount
+      if (t.paid_at) continue // fatura já paga no passado, water under the bridge
+      const m = normalizeStr(t.merchant ?? "")
+      if (!m.includes("cartao")) continue
+      if (!m.includes(key)) continue
+      debt += Number(t.amount_cents)
+    }
+    if (debt > 0) detectedCardDebt.set(card.id, debt)
+  }
+
+  const accountsWithBalance = (accounts ?? []).map((a) => {
+    const base = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
+    const detected = detectedCardDebt.get(a.id) ?? 0
+    return {
+      id: a.id,
+      name: a.name,
+      type: a.type as AccountType,
+      // Pra cartão, dívida detectada em outras contas é SUBTRAÍDA do
+      // saldo (aumenta a dívida). Pra outras contas, detected=0.
+      balanceCents: base - detected,
+    }
+  })
 
   const savingsAccounts = accountsWithBalance.filter(
     (a) => a.type === "savings" || a.type === "poupanca",
