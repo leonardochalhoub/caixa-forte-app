@@ -62,11 +62,14 @@ export default async function DashboardPage() {
       .select("id, name, is_income, parent_id, is_formal_income")
       .eq("user_id", user.id)
       .order("sort_order"),
-    supabase
+    // flowRealized agora traz TODAS as tx (com e sem paid_at) +
+    // account_id. Depois separamos: contas não-cartão usam só paid_at
+    // não-nulo; cartão de crédito usa tudo (charge é dívida desde o
+    // swipe, independente de paid_at).
+    untyped(supabase)
       .from("transactions")
-      .select("account_id, type, amount_cents")
-      .eq("user_id", user.id)
-      .not("paid_at", "is", null),
+      .select("account_id, type, amount_cents, paid_at, is_transfer")
+      .eq("user_id", user.id),
     supabase
       .from("transactions")
       .select(
@@ -75,7 +78,7 @@ export default async function DashboardPage() {
       .eq("user_id", user.id)
       .is("paid_at", null)
       .order("occurred_on", { ascending: true })
-      .limit(5),
+      .limit(20),
     supabase
       .from("capture_messages")
       .select("id, channel, raw_input, groq_parse_json, created_at")
@@ -149,8 +152,16 @@ export default async function DashboardPage() {
     0,
   )
 
+  const accountTypeById = new Map(
+    (accounts ?? []).map((a) => [a.id, a.type as AccountType]),
+  )
   const flowByAccount = new Map<string, number>()
   for (const t of flowRealized ?? []) {
+    const accType = accountTypeById.get(t.account_id)
+    const isCreditAcc = accType === "credit"
+    // Cartão: conta tudo (inclusive paid_at=null) — charges são dívida
+    // assim que aparecem. Demais contas: só paid_at não-nulo.
+    if (!isCreditAcc && t.paid_at == null) continue
     const delta = t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)
     flowByAccount.set(t.account_id, (flowByAccount.get(t.account_id) ?? 0) + delta)
   }
@@ -246,7 +257,17 @@ export default async function DashboardPage() {
     cryptoCents +
     pendingNetCents
 
-  const upcomingNet = (upcomingTx ?? []).reduce(
+  // Agendadas widget não mostra charges de cartão — eles aparecem em
+  // /app/cartoes como fatura. Aqui só entra "dinheiro a sair da
+  // corrente" (incluindo pagamento de fatura registrado como lump-sum
+  // na conta corrente).
+  const creditIdsForFilter = new Set(
+    (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
+  )
+  const filteredUpcoming = (upcomingTx ?? [])
+    .filter((t) => !creditIdsForFilter.has(t.account_id))
+    .slice(0, 5)
+  const upcomingNet = filteredUpcoming.reduce(
     (sum, t) =>
       sum + (t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)),
     0,
@@ -377,7 +398,7 @@ export default async function DashboardPage() {
         }))}
       />
 
-      {(upcomingTx ?? []).length > 0 && (
+      {filteredUpcoming.length > 0 && (
         <Card>
           <CardContent className="space-y-3 p-5">
             <div className="flex items-baseline justify-between">
@@ -399,7 +420,7 @@ export default async function DashboardPage() {
               </div>
             </div>
             <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-              {(upcomingTx ?? []).map((t) => {
+              {filteredUpcoming.map((t) => {
                 const isIncome = t.type === "income"
                 return (
                   <li key={t.id}>
