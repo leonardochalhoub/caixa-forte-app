@@ -317,18 +317,28 @@ export async function suggestBalanceRegistryAction(
   input: z.infer<typeof SuggestInputSchema>,
 ): Promise<SuggestResult> {
   try {
-    await requireUser()
-  } catch {
-    return { ok: false, error: "Sessão inválida. Faça login de novo." }
-  }
-  const parsed = (() => {
-    try {
-      return SuggestInputSchema.parse(input)
-    } catch {
-      return null
+    return await _suggestBalanceRegistryImpl(input)
+  } catch (err) {
+    // Deixa redirect/http errors do Next.js propagarem
+    const digest = (err as { digest?: string })?.digest
+    if (digest?.startsWith?.("NEXT_")) throw err
+    return {
+      ok: false,
+      error:
+        (err as Error)?.message ??
+        "Erro interno ao sugerir campos. Tente de novo em alguns segundos.",
     }
-  })()
-  if (!parsed) {
+  }
+}
+
+async function _suggestBalanceRegistryImpl(
+  input: z.infer<typeof SuggestInputSchema>,
+): Promise<SuggestResult> {
+  // requireUser NÃO em try/catch — precisa do redirect funcionar se
+  // sessão expirar
+  await requireUser()
+  const parsed = SuggestInputSchema.safeParse(input)
+  if (!parsed.success) {
     return { ok: false, error: "Descrição inválida (mínimo 3 caracteres)." }
   }
   const groq = getGroqClient()
@@ -372,7 +382,7 @@ TEMPLATES TÍPICOS:
 
 Devolva APENAS JSON válido com exatamente esses 8 campos. Sem markdown, sem explicação.`
 
-  const user = `Descrição do usuário: ${parsed.description}
+  const user = `Descrição do usuário: ${parsed.data.description}
 
 JSON:`
 
