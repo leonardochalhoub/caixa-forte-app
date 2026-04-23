@@ -8,6 +8,7 @@ export const maxDuration = 300
 const DEMO_EMAIL = "larissa.demo@caixa-forte.app"
 const DEMO_PASSWORD = "DemoPublico#2026"
 const DEMO_NAME = "Larissa Oliveira"
+const DEMO_AVATAR_URL = "https://randomuser.me/api/portraits/women/79.jpg"
 
 type SeedLog = { step: string; detail: string; ok: boolean }
 
@@ -100,14 +101,27 @@ export async function POST(req: Request) {
     const existing = list?.users?.find((u) => u.email === DEMO_EMAIL)
     if (existing) {
       userId = existing.id
-      await sb.auth.admin.updateUserById(userId, { password: DEMO_PASSWORD })
+      await sb.auth.admin.updateUserById(userId, {
+        password: DEMO_PASSWORD,
+        user_metadata: {
+          display_name: DEMO_NAME,
+          full_name: DEMO_NAME,
+          avatar_url: DEMO_AVATAR_URL,
+          picture: DEMO_AVATAR_URL,
+        },
+      })
       note("auth", `atualizou senha de ${userId}`)
     } else {
       const { data, error } = await sb.auth.admin.createUser({
         email: DEMO_EMAIL,
         password: DEMO_PASSWORD,
         email_confirm: true,
-        user_metadata: { display_name: DEMO_NAME, full_name: DEMO_NAME },
+        user_metadata: {
+          display_name: DEMO_NAME,
+          full_name: DEMO_NAME,
+          avatar_url: DEMO_AVATAR_URL,
+          picture: DEMO_AVATAR_URL,
+        },
       })
       if (error || !data?.user) throw new Error(`createUser: ${error?.message}`)
       userId = data.user.id
