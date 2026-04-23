@@ -31,7 +31,7 @@ export default function LandingPage() {
         </nav>
       </header>
 
-      <section className="mx-auto w-full max-w-2xl px-6 pt-10">
+      <section className="mx-auto w-full max-w-2xl space-y-2 px-6 pt-10">
         <Link
           href="/api/demo/enter"
           target="_blank"
@@ -41,7 +41,7 @@ export default function LandingPage() {
           <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-border">
             <Image
               src="https://randomuser.me/api/portraits/women/79.jpg"
-              alt="Larissa Oliveira — conta de demonstração"
+              alt="Foto pública aleatória usada como avatar da conta fictícia"
               width={64}
               height={64}
               unoptimized
@@ -50,7 +50,7 @@ export default function LandingPage() {
           </div>
           <div className="flex-1 space-y-0.5">
             <p className="text-[10px] uppercase tracking-wider text-muted">
-              Ver conta de exemplo
+              Ver conta de exemplo · 100% fictícia
             </p>
             <p className="text-base font-medium text-strong">
               Larissa Oliveira · São Paulo
@@ -62,6 +62,23 @@ export default function LandingPage() {
           </div>
           <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-strong" />
         </Link>
+        <p className="px-1 text-[11px] leading-relaxed text-muted">
+          <strong className="font-semibold text-body">Aviso:</strong>{" "}
+          Larissa Oliveira não existe. Nome, transações, saldos, cartões e
+          carro foram inventados por IA (Llama 3.3 via Groq) para fins de
+          demonstração. A foto vem de um banco público e aleatório da
+          internet (
+          <a
+            href="https://randomuser.me"
+            target="_blank"
+            rel="noopener"
+            className="underline"
+          >
+            randomuser.me
+          </a>
+          ) — não corresponde a nenhuma pessoa real associada ao Caixa Forte.
+          Nenhum dado seu é usado ou exposto nessa conta.
+        </p>
       </section>
 
       <section className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-20 text-center">
