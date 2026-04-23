@@ -178,15 +178,15 @@ export default async function DashboardPage() {
   // Credit card balance = running debt (negative when you owe). Subtracted
   // from the "liquid + savings + investments" net worth.
   const creditCents = creditAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  // FGTS is intentionally EXCLUDED from the total — locked funds.
-  // Pending captures reduce the projected total since the money is
-  // already gone, we just haven't tagged the account yet.
+  // Saldo = dinheiro disponível + investimentos. FGTS fica de fora
+  // (bloqueado) e cartão de crédito também — dívida só derruba o saldo
+  // quando a fatura é paga (o transfer pair debita a conta corrente).
+  // Pendentes reduzem, são dinheiro já gasto sem conta atribuída.
   const totalBalanceCents =
     liquidCents +
     savingsCents +
     investmentCents +
     cryptoCents +
-    creditCents +
     pendingNetCents
 
   const upcomingNet = (upcomingTx ?? []).reduce(

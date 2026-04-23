@@ -303,7 +303,11 @@ function HeroBalance({
             totalCents={creditCents}
             emptyHint="Ainda sem cartões"
             dashed
-            footnote={creditCents < 0 ? "dívida em aberto" : undefined}
+            footnote={
+              creditCents < 0
+                ? "dívida aberta — não entra no saldo total"
+                : "não entra no saldo total"
+            }
           />
           <BreakdownPanel
             icon={<PiggyBank className="h-3 w-3" />}

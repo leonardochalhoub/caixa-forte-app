@@ -73,23 +73,42 @@ export default async function CartoesPage() {
     const mine = txs.filter((t) => t.account_id === card.id)
     const byMonth = new Map<
       string,
-      { charges: CardTx[]; paid: CardTx[]; total: number; paidTotal: number }
+      {
+        charges: CardTx[]
+        paid: CardTx[]
+        scheduled: CardTx[]
+        total: number
+        paidTotal: number
+        scheduledPaymentTotal: number
+      }
     >()
     for (const t of mine) {
       const key = t.occurred_on.slice(0, 7)
       const bucket = byMonth.get(key) ?? {
         charges: [],
         paid: [],
+        scheduled: [],
         total: 0,
         paidTotal: 0,
+        scheduledPaymentTotal: 0,
       }
+      const isSettled = t.paid_at !== null
       if (t.is_transfer) {
-        bucket.paid.push(t)
-        bucket.paidTotal += Number(t.amount_cents)
+        // Transferência = pagamento da fatura. Só conta como pago se
+        // paid_at estiver setado; senão é pagamento agendado.
+        if (isSettled) {
+          bucket.paid.push(t)
+          bucket.paidTotal += Number(t.amount_cents)
+        } else {
+          bucket.scheduled.push(t)
+          bucket.scheduledPaymentTotal += Number(t.amount_cents)
+        }
       } else if (t.type === "expense") {
+        // Compra (charge). Settled ou agendada, conta na dívida.
         bucket.charges.push(t)
         bucket.total += Number(t.amount_cents)
       } else {
+        // Income não-transfer num cartão é raro (estorno) — conta como pago.
         bucket.paid.push(t)
         bucket.paidTotal += Number(t.amount_cents)
       }
@@ -104,9 +123,11 @@ export default async function CartoesPage() {
           label: `${MONTH_NAMES_PT[Number(m) - 1]} ${y}`,
           chargeCents: v.total,
           paidCents: v.paidTotal,
+          scheduledPaymentCents: v.scheduledPaymentTotal,
           openCents: v.total - v.paidTotal,
           charges: v.charges,
           paid: v.paid,
+          scheduled: v.scheduled,
         }
       })
     const runningBalance =
@@ -212,13 +233,21 @@ function InvoiceRow({
     label: string
     chargeCents: number
     paidCents: number
+    scheduledPaymentCents: number
     openCents: number
     charges: { id: string; amount_cents: number; occurred_on: string; merchant: string | null }[]
     paid: { id: string; amount_cents: number; occurred_on: string; merchant: string | null }[]
+    scheduled: { id: string; amount_cents: number; occurred_on: string; merchant: string | null }[]
   }
   checkingAccounts: { id: string; name: string }[]
 }) {
   const closed = invoice.openCents <= 0 && invoice.chargeCents > 0
+  const hasScheduled = invoice.scheduledPaymentCents > 0
+  const status = closed
+    ? { label: "PAGA", className: "text-income" }
+    : hasScheduled
+      ? { label: "PAGAMENTO AGENDADO", className: "text-amber-600 dark:text-amber-400" }
+      : { label: formatBRL(invoice.openCents), className: "text-strong" }
   return (
     <li className="space-y-2 rounded-xl border border-border p-3">
       <div className="flex items-center justify-between gap-3">
@@ -229,17 +258,17 @@ function InvoiceRow({
             {invoice.charges.length === 1 ? "" : "s"} ·{" "}
             {formatBRL(invoice.chargeCents)}
             {invoice.paidCents > 0 && ` · pago ${formatBRL(invoice.paidCents)}`}
+            {hasScheduled &&
+              ` · agendado ${formatBRL(invoice.scheduledPaymentCents)}`}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <p
-            className={`font-mono text-lg font-semibold tabular-nums ${
-              closed ? "text-income" : "text-strong"
-            }`}
+            className={`font-mono text-lg font-semibold tabular-nums ${status.className}`}
           >
-            {closed ? "PAGA" : formatBRL(invoice.openCents)}
+            {status.label}
           </p>
-          {!closed && invoice.openCents > 0 && (
+          {!closed && !hasScheduled && invoice.openCents > 0 && (
             <PayInvoiceButton
               cardId={cardId}
               cardName={cardName}

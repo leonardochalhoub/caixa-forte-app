@@ -79,6 +79,26 @@
   }
 }
 
+/* Dark theme para relatórios — força paleta escura independente da
+   preferência do sistema. Usado quando o user clica "Tema escuro"
+   no /app/relatorios/conciliacao. Override dos tokens apenas nesse
+   escopo para não vazar pro resto do app. */
+.report-dark {
+  --color-canvas: #09090b;
+  --color-subtle: #18181b;
+  --color-border: #3f3f46;
+  --color-muted: #a1a1aa;
+  --color-body: #e4e4e7;
+  --color-strong: #fafafa;
+  --color-ink: #fafafa;
+  --color-income: #22c55e;
+  --color-expense: #f87171;
+  background: var(--color-canvas);
+  color: var(--color-body);
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
+
 /* Print layout — tuned for A4 (210×297mm).
    Usable area with 15mm × 12mm margins = 186mm × 267mm.
    Target 10pt body so tables (6 cols, R$ X.XXX,XX values) fit without wrap.
@@ -111,6 +131,32 @@
     background: transparent !important;
     border-color: #9ca3af !important;
     box-shadow: none !important;
+  }
+  /* Dark print — mantém tons escuros do "report-dark" no PDF.
+     Algumas impressoras podem pedir configuração "imprimir em cores
+     ou fundos" no diálogo pra o fundo escuro sair. */
+  .report-dark {
+    background: #09090b !important;
+    color: #fafafa !important;
+  }
+  .report-dark * {
+    color: #fafafa !important;
+    border-color: #3f3f46 !important;
+  }
+  .report-dark .text-income {
+    color: #22c55e !important;
+  }
+  .report-dark .text-expense {
+    color: #f87171 !important;
+  }
+  .report-dark .text-muted,
+  .report-dark .italic {
+    color: #a1a1aa !important;
+  }
+  .report-dark thead,
+  .report-dark tfoot,
+  .report-dark .bg-subtle {
+    background: #18181b !important;
   }
   /* Compact font scale — screen "text-xs"/"text-sm" look too small on paper. */
   .report-root .text-\[10px\],
