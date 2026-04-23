@@ -222,9 +222,14 @@ export default async function DashboardPage() {
     // Regra: balance = opening - max(|flow cartão|, detected).
     // Pra demais contas: detected = 0, fica só base.
     let balance = base
-    if (isCredit && detected > 0) {
-      const cardDebt = Math.max(Math.abs(base - Number(a.opening_balance_cents ?? 0)), detected)
-      balance = Number(a.opening_balance_cents ?? 0) - cardDebt
+    if (isCredit) {
+      // Modelo: se há lump-sum detectado, ELE é o total atual da
+      // fatura (inclui os itemizados). Nunca somar com card flow.
+      // Se não há lump-sum, usa só o flow (itemizados).
+      if (detected > 0) {
+        balance = Number(a.opening_balance_cents ?? 0) - detected
+      }
+      // else: balance = base (flow no cartão)
     }
     return {
       id: a.id,
@@ -269,10 +274,11 @@ export default async function DashboardPage() {
     cryptoCents +
     pendingNetCents
 
-  // Agendadas widget não mostra charges de cartão — eles aparecem em
-  // /app/cartoes como fatura. Aqui só entra "dinheiro a sair da
-  // corrente" (incluindo pagamento de fatura registrado como lump-sum
-  // na conta corrente).
+  // Dashboard esconde charges de cartão (tx em conta type=credit). O
+  // lump-sum de fatura (que vive na conta corrente como agendada)
+  // continua aparecendo em Agendadas — é dinheiro real que vai sair
+  // da conta. Últimas transações e Agendadas não se sobrepõem porque
+  // uma mostra pagas e a outra não-pagas.
   const creditIdsForFilter = new Set(
     (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
   )

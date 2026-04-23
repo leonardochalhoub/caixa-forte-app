@@ -163,11 +163,10 @@ export default async function CartoesPage() {
           (s, c) => s + c.amount_cents,
           0,
         )
-        // Total da fatura = valor maior entre lump-sum e soma itemizada.
-        // Lump-sum é o valor "oficial" que o user registrou; itemizados
-        // são a quebra. Se não tiver lump-sum, cai na soma dos charges.
-        const totalCents =
-          v.lumpSumCents > 0 ? Math.max(v.lumpSumCents, itemizedCents) : itemizedCents
+        // Lump-sum (quando existe) É o total da fatura — atualizado pra
+        // refletir as compras itemizadas. Itemizados são subset visível.
+        // Sem lump-sum, total = soma dos itemizados.
+        const totalCents = v.lumpSumCents > 0 ? v.lumpSumCents : itemizedCents
         const allLumpSumsPaid =
           v.lumpSumCents > 0 && v.paidCents >= v.lumpSumCents
         const openCents = allLumpSumsPaid ? 0 : totalCents - v.paidCents
@@ -319,10 +318,32 @@ function InvoiceRow({
             <span className="font-mono font-semibold text-strong">
               {formatBRL(invoice.totalCents)}
             </span>
-            {invoice.itemizedCents > 0 &&
-              ` · ${invoice.itemized.length} itemizado${invoice.itemized.length === 1 ? "" : "s"} ${formatBRL(invoice.itemizedCents)}`}
-            {invoice.lumpSumCents > 0 &&
-              ` · pagamento agendado ${formatBRL(invoice.lumpSumCents)}`}
+            {invoice.itemizedCents > 0 && (
+              <>
+                {" · "}
+                {invoice.itemized.length} compra
+                {invoice.itemized.length === 1 ? "" : "s"} itemizada
+                {invoice.itemized.length === 1 ? "" : "s"}{" "}
+                <span className="font-mono text-body">
+                  {formatBRL(invoice.itemizedCents)}
+                </span>
+                {invoice.lumpSumCents > invoice.itemizedCents && (
+                  <>
+                    {" (antes R$ "}
+                    <span className="font-mono">
+                      {(
+                        (invoice.lumpSumCents - invoice.itemizedCents) /
+                        100
+                      ).toLocaleString("pt-BR", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    {")"}
+                  </>
+                )}
+              </>
+            )}
             {invoice.paidCents > 0 && ` · pago ${formatBRL(invoice.paidCents)}`}
           </p>
         </div>
