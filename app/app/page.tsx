@@ -37,9 +37,9 @@ export default async function DashboardPage() {
     { data: upcomingTx },
     { data: pendingCaptures },
   ] = await Promise.all([
-    supabase
+    untyped(supabase)
       .from("transactions")
-      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id")
+      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at")
       .eq("user_id", user.id)
       .gte("occurred_on", oldestStart),
     // "Últimas transações" no dashboard só mostra movimentações das
@@ -127,10 +127,23 @@ export default async function DashboardPage() {
   const creditAccountIdSet = new Set(
     (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
   )
+  type MonthTxRow = {
+    account_id: string
+    paid_at: string | null
+    occurred_on: string
+    type: string
+    amount_cents: number | string
+    category_id: string | null
+    is_transfer: boolean | null
+  }
+  const monthTxTyped = (monthTx ?? []) as MonthTxRow[]
   const monthly = bucketizeTransactions(
     [
-      ...(monthTx ?? [])
+      ...monthTxTyped
         .filter((t) => !creditAccountIdSet.has(t.account_id))
+        // KPIs refletem DINHEIRO QUE MEXEU de fato — agendadas
+        // (paid_at=null) ainda não impactam Entrada/Saída/Perda do mês.
+        .filter((t) => t.paid_at != null)
         .map((t) => ({
           occurred_on: t.occurred_on,
           type: t.type as "income" | "expense",
@@ -304,7 +317,7 @@ export default async function DashboardPage() {
     // Mais simples: buscar de monthTx que tem occurred_on
   }
   // Fallback: usa monthTx (que tem occurred_on) pra construir o map
-  for (const t of monthTx ?? []) {
+  for (const t of monthTxTyped) {
     if (t.is_transfer) continue
     if (!creditIdsForFilter.has(t.account_id)) continue
     if (t.type !== "expense") continue
