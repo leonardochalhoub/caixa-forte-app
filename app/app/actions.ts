@@ -110,6 +110,97 @@ export async function updateTransactionAction(input: z.infer<typeof UpdateTransa
   return data
 }
 
+// Meses em português (lowercase) pra detectar merchant como
+// "Nubank Cartão Abril 2026" — precisamos saber a qual mês o
+// lump-sum se refere pra decidir fatura aberta/fechada.
+const MONTH_NAMES_PT_LOWER = [
+  "janeiro",
+  "fevereiro",
+  "marco",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+]
+
+function normalizePt(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+}
+
+function bankKeyFromCardName(cardName: string): string {
+  const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
+  return normalizePt(cleaned.split(/\s+/)[0] ?? "")
+}
+
+function addMonths(ym: string, n: number): string {
+  const [yStr, mStr] = ym.split("-")
+  const y = Number(yStr)
+  const m = Number(mStr)
+  const total = y * 12 + (m - 1) + n
+  const ny = Math.floor(total / 12)
+  const nm = (total % 12) + 1
+  return `${ny}-${String(nm).padStart(2, "0")}`
+}
+
+// Decide a qual fatura o charge deve pertencer: começa pelo mês
+// desejado e avança enquanto a fatura daquele mês estiver paga
+// (detectada por um lump-sum "<banco> cartão <mes> <ano>" com
+// paid_at setado em qualquer conta). Retorna a primeira data do
+// mês escolhido, ou o próprio seedDate se o mês dele já está aberto.
+async function nextOpenInvoiceDate(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  userId: string,
+  cardName: string,
+  seedDate: string,
+): Promise<string> {
+  const bankKey = bankKeyFromCardName(cardName)
+  if (!bankKey) return seedDate
+
+  const { data: lumpSumsRaw } = await untyped(supabase)
+    .from("transactions")
+    .select("merchant, paid_at, is_transfer, type")
+    .eq("user_id", userId)
+    .not("paid_at", "is", null)
+  const lumpSums = (lumpSumsRaw ?? []) as Array<{
+    merchant: string | null
+    paid_at: string | null
+    is_transfer: boolean | null
+    type: string
+  }>
+
+  const closedMonths = new Set<string>()
+  for (const t of lumpSums) {
+    if (t.is_transfer) continue
+    if (t.type !== "expense") continue
+    const m = normalizePt(t.merchant ?? "")
+    if (!m.includes("cartao")) continue
+    if (!m.includes(bankKey)) continue
+    for (let i = 0; i < 12; i++) {
+      if (!m.includes(MONTH_NAMES_PT_LOWER[i]!)) continue
+      const yMatch = m.match(/(20\d{2})/)
+      if (!yMatch) continue
+      const year = yMatch[1]
+      closedMonths.add(`${year}-${String(i + 1).padStart(2, "0")}`)
+      break
+    }
+  }
+
+  let ym = seedDate.slice(0, 7)
+  let safety = 24
+  while (closedMonths.has(ym) && safety > 0) {
+    ym = addMonths(ym, 1)
+    safety--
+  }
+
+  if (ym === seedDate.slice(0, 7)) return seedDate
+  return `${ym}-01`
+}
+
 export async function deleteTransactionAction(id: string) {
   const user = await requireUser()
   const supabase = await createServerClient()
@@ -203,7 +294,7 @@ export async function resolvePendingCaptureAction(
   // na criação — só ficam "pagos" quando a fatura inteira é paga.
   const { data: targetAcc } = await supabase
     .from("accounts")
-    .select("type")
+    .select("type, name")
     .eq("id", parsed.accountId)
     .eq("user_id", user.id)
     .maybeSingle()
@@ -211,6 +302,19 @@ export async function resolvePendingCaptureAction(
 
   const today = new Date().toISOString().slice(0, 10)
   const paidAt = isCredit ? null : resolvePaidAt(p.occurred_on, parsed.paid, today)
+
+  // Cartão: charge nunca vai pra fatura já paga nem pro passado.
+  // Encontra o primeiro mês com fatura em aberto (começando pelo
+  // occurred_on original OU hoje, o que for maior).
+  let effectiveOccurredOn = p.occurred_on
+  if (isCredit && targetAcc) {
+    effectiveOccurredOn = await nextOpenInvoiceDate(
+      supabase,
+      user.id,
+      targetAcc.name,
+      p.occurred_on < today ? today : p.occurred_on,
+    )
+  }
 
   const { data: tx, error: txErr } = await untyped(supabase)
     .from("transactions")
@@ -220,7 +324,7 @@ export async function resolvePendingCaptureAction(
       category_id: categoryId,
       type: p.type,
       amount_cents: p.amount_cents,
-      occurred_on: p.occurred_on,
+      occurred_on: effectiveOccurredOn,
       merchant: p.merchant,
       note: p.note,
       source: cap.channel,
