@@ -271,6 +271,18 @@ export default async function DashboardPage() {
         creditAccounts={creditAccounts}
       />
 
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-strong">Entrada vs saída (12 meses)</h2>
+              <p className="text-xs text-muted">Tendência mensal do seu fluxo de caixa</p>
+            </div>
+          </div>
+          <TrendStrip data={monthly} />
+        </CardContent>
+      </Card>
+
       <PendingCaptures
         captures={(pendingCaptures ?? [])
           .filter((c) => {
@@ -374,18 +386,6 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       )}
-
-      <Card>
-        <CardContent className="space-y-3 p-5">
-          <div className="flex items-baseline justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-strong">Entrada vs saída (12 meses)</h2>
-              <p className="text-xs text-muted">Tendência mensal do seu fluxo de caixa</p>
-            </div>
-          </div>
-          <TrendStrip data={monthly} />
-        </CardContent>
-      </Card>
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
