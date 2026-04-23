@@ -6,7 +6,7 @@ import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
 import { formatBRL } from "@/lib/money"
-import { formatPtBrDateShort } from "@/lib/time"
+import { formatInSaoPaulo, formatPtBrDateShort } from "@/lib/time"
 import { PrintActions } from "./_components/PrintActions"
 import { PeriodSelector } from "./_components/PeriodSelector"
 
@@ -32,6 +32,7 @@ type Tx = {
   amount_cents: number
   occurred_on: string
   paid_at: string | null
+  created_at: string
   merchant: string | null
   is_transfer: boolean | null
   category_id: string | null
@@ -100,11 +101,12 @@ export default async function ConciliacaoPage({
     untyped(supabase)
       .from("transactions")
       .select(
-        "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer, category_id",
+        "id, account_id, type, amount_cents, occurred_on, paid_at, created_at, merchant, is_transfer, category_id",
       )
       .eq("user_id", user.id)
       .not("paid_at", "is", null)
-      .order("occurred_on", { ascending: true }),
+      .order("occurred_on", { ascending: true })
+      .order("created_at", { ascending: true }),
     supabase
       .from("capture_messages")
       .select("id, groq_parse_json")
@@ -723,10 +725,20 @@ export default async function ConciliacaoPage({
                       })
                       return [...withRunning].reverse().map(({ t, delta, runningAt }) => {
                         const isIncome = delta >= 0
+                        const hhmm = t.created_at
+                          ? formatInSaoPaulo(new Date(t.created_at), "HH:mm")
+                          : ""
                         return (
                           <tr key={t.id} className="border-b border-border/50">
                             <td className="py-1 text-body">
-                              {formatPtBrDateShort(t.occurred_on)}
+                              <span className="whitespace-nowrap">
+                                {formatPtBrDateShort(t.occurred_on)}
+                                {hhmm && (
+                                  <span className="ml-1 text-[10px] text-muted">
+                                    · {hhmm}
+                                  </span>
+                                )}
+                              </span>
                             </td>
                             <td className="py-1 text-body">
                               <span className="inline-flex items-center gap-1.5">
