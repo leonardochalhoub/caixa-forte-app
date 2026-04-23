@@ -39,6 +39,8 @@ export function DocsButton({
       <Link
         href="/docs"
         prefetch
+        target="_blank"
+        rel="noopener noreferrer"
         onClick={trackAndGo}
         className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-subtle px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-body transition-colors hover:border-muted hover:text-strong ${className ?? ""}`}
       >
@@ -50,7 +52,13 @@ export function DocsButton({
 
   return (
     <Button asChild variant="outline" size={size} className={className}>
-      <Link href="/docs" prefetch onClick={trackAndGo}>
+      <Link
+        href="/docs"
+        prefetch
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={trackAndGo}
+      >
         <BookOpen className="h-4 w-4" />
         {label}
       </Link>

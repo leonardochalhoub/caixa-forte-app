@@ -12,7 +12,7 @@
 
 &nbsp;
 
-[**📖 Documentação**](https://caixa-forte-app.vercel.app/docs) &nbsp;·&nbsp; [**Criar conta**](https://caixa-forte-app.vercel.app/signup) &nbsp;·&nbsp; [**Entrar**](https://caixa-forte-app.vercel.app/login)
+<a href="https://caixa-forte-app.vercel.app/docs" target="_blank" rel="noopener noreferrer"><strong>📖 Documentação</strong></a> &nbsp;·&nbsp; [**Criar conta**](https://caixa-forte-app.vercel.app/signup) &nbsp;·&nbsp; [**Entrar**](https://caixa-forte-app.vercel.app/login)
 
 &nbsp;
 
@@ -105,7 +105,7 @@ O **Caixa Forte** ataca os três:
 | **Soft-delete reversível** | Desativar a conta é um clique; logar de novo reativa sozinho. |
 | **LGPD / GDPR** | Cookie banner no primeiro acesso + documentação pública do que é coletado. |
 
-Leia tudo que coletamos e o que **não** coletamos na [**documentação pública**](https://caixa-forte-app.vercel.app/docs).
+Leia tudo que coletamos e o que **não** coletamos na <a href="https://caixa-forte-app.vercel.app/docs" target="_blank" rel="noopener noreferrer"><strong>documentação pública</strong></a>.
 
 &nbsp;
 
