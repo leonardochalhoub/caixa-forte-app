@@ -303,6 +303,7 @@ function HeroBalance({
             totalCents={creditCents}
             emptyHint="Ainda sem cartões"
             dashed
+            sortByDebt
             footnote={
               creditCents < 0
                 ? "dívida aberta — não entra no saldo total"
