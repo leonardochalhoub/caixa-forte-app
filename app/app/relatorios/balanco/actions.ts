@@ -299,22 +299,42 @@ const SuggestInputSchema = z.object({
   description: z.string().trim().min(3).max(400),
 })
 
+type SuggestResult =
+  | {
+      ok: true
+      kind: string
+      description: string
+      debit_section: string
+      debit_label: string
+      credit_section: string
+      credit_label: string
+      amount_cents: number | null
+      note: string | null
+    }
+  | { ok: false; error: string }
+
 export async function suggestBalanceRegistryAction(
   input: z.infer<typeof SuggestInputSchema>,
-): Promise<{
-  kind: (typeof AI_KINDS)[number]
-  description: string
-  debit_section: (typeof AI_SECTIONS)[number]
-  debit_label: string
-  credit_section: (typeof AI_SECTIONS)[number]
-  credit_label: string
-  amount_cents: number | null
-  note: string | null
-}> {
-  await requireUser()
-  const parsed = SuggestInputSchema.parse(input)
+): Promise<SuggestResult> {
+  try {
+    await requireUser()
+  } catch {
+    return { ok: false, error: "Sessão inválida. Faça login de novo." }
+  }
+  const parsed = (() => {
+    try {
+      return SuggestInputSchema.parse(input)
+    } catch {
+      return null
+    }
+  })()
+  if (!parsed) {
+    return { ok: false, error: "Descrição inválida (mínimo 3 caracteres)." }
+  }
   const groq = getGroqClient()
-  if (!groq) throw new Error("IA indisponível (GROQ_API_KEY ausente)")
+  if (!groq) {
+    return { ok: false, error: "IA indisponível (GROQ_API_KEY ausente)." }
+  }
 
   const system = `Você é um contador brasileiro. O usuário descreve uma operação financeira pessoal e você devolve JSON com os campos da partida dobrada.
 
@@ -370,13 +390,15 @@ JSON:`
     })
     content = resp.choices[0]?.message?.content ?? null
   } catch (err) {
-    throw new Error(
-      `Groq indisponível: ${(err as Error).message ?? "erro desconhecido"}`,
-    )
+    return {
+      ok: false,
+      error: `Groq indisponível: ${(err as Error).message ?? "erro desconhecido"}`,
+    }
   }
-  if (!content) throw new Error("IA retornou vazio")
+  if (!content) {
+    return { ok: false, error: "IA retornou resposta vazia." }
+  }
 
-  // Remove fences markdown se a IA empacotar (```json ... ```).
   const cleaned = content
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/, "")
@@ -386,9 +408,10 @@ JSON:`
   try {
     json = JSON.parse(cleaned) as Record<string, unknown>
   } catch {
-    throw new Error(
-      `IA retornou formato inválido. Início: ${content.slice(0, 120)}`,
-    )
+    return {
+      ok: false,
+      error: `IA retornou formato inválido. Início: ${content.slice(0, 120)}`,
+    }
   }
 
   // Validação mínima
@@ -433,6 +456,7 @@ JSON:`
     : "ativo_circulante_disponivel"
 
   return {
+    ok: true,
     kind: validKind,
     description: normalized.description || "Registro sem descrição",
     debit_section: validDebitSection,

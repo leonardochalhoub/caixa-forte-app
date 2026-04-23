@@ -380,31 +380,49 @@
     size: A4 portrait;
     margin: 10mm 10mm;
   }
-  /* Balanço Contábil: especificamente compacto pra caber em 1 página */
-  .report-root:has(> section h2:first-child) {
-    /* heurística — nada especial, o escopo abaixo cobre o .avoid-break */
-  }
-  /* Fonte ainda menor em páginas com o título "Balanço" */
-  body:has([class*="Scale"]) .report-root {
+  /* Balanço Contábil: força 2 colunas (ATIVO | PASSIVO+PL) e paisagem
+     pra caber no formato clássico de balanço patrimonial. */
+  .report-root:has(.balanco-grid) {
     font-size: 9pt !important;
   }
-  body:has([class*="Scale"]) .report-root h1 {
+  .report-root:has(.balanco-grid) h1 {
     font-size: 16pt !important;
   }
-  body:has([class*="Scale"]) .report-root h2 {
+  .report-root:has(.balanco-grid) h2 {
     font-size: 11pt !important;
   }
-  body:has([class*="Scale"]) .report-root .avoid-break {
-    padding: 8pt !important;
-  }
-  body:has([class*="Scale"]) .report-root .space-y-8 > * + * {
-    margin-top: 8pt !important;
-  }
-  body:has([class*="Scale"]) .report-root .space-y-3 > * + *,
-  body:has([class*="Scale"]) .report-root .space-y-2 > * + * {
-    margin-top: 3pt !important;
-  }
-  body:has([class*="Scale"]) .report-root section {
+  .report-root .balanco-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 6mm !important;
     page-break-inside: avoid;
+  }
+  .report-root .balanco-grid > section {
+    padding: 4mm !important;
+  }
+  .report-root:has(.balanco-grid) .avoid-break {
+    padding: 4mm !important;
+  }
+  .report-root:has(.balanco-grid) .space-y-8 > * + * {
+    margin-top: 4mm !important;
+  }
+  .report-root:has(.balanco-grid) .space-y-3 > * + *,
+  .report-root:has(.balanco-grid) .space-y-2 > * + * {
+    margin-top: 2mm !important;
+  }
+  .report-root:has(.balanco-grid) section {
+    page-break-inside: avoid;
+  }
+}
+
+/* Balanço imprime em paisagem pra caber 2 colunas confortavelmente.
+   Named page "balanco" + body:has() aplica o layout só nesse relatório. */
+@page balanco-landscape {
+  size: A4 landscape;
+  margin: 10mm;
+}
+@media print {
+  body:has(.balanco-grid) {
+    page: balanco-landscape;
   }
 }

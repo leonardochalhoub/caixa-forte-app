@@ -198,6 +198,10 @@ export function AddRegistryButton({ period }: { period: string }) {
     startAi(async () => {
       try {
         const r = await suggestBalanceRegistryAction({ description: prompt })
+        if (!r.ok) {
+          toast.error(`IA: ${r.error}`)
+          return
+        }
         setDescription(r.description)
         setDebitSection(r.debit_section)
         setDebitLabel(r.debit_label)

@@ -613,7 +613,7 @@ export default async function BalancoPage({
         </p>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="balanco-grid grid gap-6 lg:grid-cols-2">
         {/* ATIVO */}
         <section className="avoid-break space-y-3 rounded-2xl border-2 border-border p-5">
           <h2 className="font-serif text-xl text-strong">ATIVO</h2>
