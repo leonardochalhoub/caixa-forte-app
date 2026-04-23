@@ -56,45 +56,24 @@ export default async function CartoesPage() {
     paid_at: string | null
     is_transfer: boolean | null
   }
-  // Busca TODAS as transações e depois decide quais pertencem a cada cartão:
-  //   1) As que vivem no account_id do cartão (alocadas diretamente)
-  //   2) As que vivem em outra conta mas o merchant casa com o padrão
-  //      "<banco> cartão" (inferência — não mexe no ledger, só exibe)
-  const { data: txsRaw } = await untyped(supabase)
-    .from("transactions")
-    .select(
-      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer",
-    )
-    .eq("user_id", user.id)
-    .order("occurred_on", { ascending: false })
+  // Só tx vivendo NO cartão são charges. Pagamento da fatura (lump-sum
+  // em outra conta) aparece no próprio dashboard como agendada — não
+  // mistura na fatura aqui, senão o total dá double-count.
+  const cardIds = (cards ?? []).map((c) => c.id)
+  const { data: txsRaw } = cardIds.length
+    ? await untyped(supabase)
+        .from("transactions")
+        .select(
+          "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer",
+        )
+        .eq("user_id", user.id)
+        .in("account_id", cardIds)
+        .order("occurred_on", { ascending: false })
+    : { data: [] }
   const allTxs = (txsRaw ?? []) as CardTx[]
   const allAccountsById = new Map(
     [...(cards ?? []), ...(checkingAccounts ?? [])].map((a) => [a.id, a]),
   )
-
-  // Primeira palavra do nome do cartão serve de "marca" do banco pra match
-  // no merchant. "Nubank Cartão" → "nubank"; "Caixa Econômica Federal
-  // Cartão" → "caixa". Match exige "cartão" na descrição pra reduzir
-  // falso positivo.
-  const normalize = (s: string) =>
-    s
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase()
-
-  function bankKeyOf(cardName: string): string {
-    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
-    return normalize(cleaned.split(/\s+/)[0] ?? "")
-  }
-
-  type CardRow = { id: string; name: string }
-  function matchesCard(tx: CardTx, card: CardRow): boolean {
-    if (tx.account_id === card.id) return true
-    const m = normalize(tx.merchant ?? "")
-    if (!m.includes("cartao")) return false
-    const bank = bankKeyOf(card.name)
-    return !!bank && m.includes(bank)
-  }
 
   type InvoiceCharge = {
     id: string
@@ -102,12 +81,12 @@ export default async function CartoesPage() {
     occurred_on: string
     merchant: string | null
     paid_at: string | null
-    isDetected: boolean // vive noutra conta, mas foi inferida pelo merchant
+    isDetected: boolean
     accountName: string
   }
 
   const cardInvoices = (cards ?? []).map((card) => {
-    const mine = allTxs.filter((t) => matchesCard(t, card))
+    const mine = allTxs.filter((t) => t.account_id === card.id)
     const byMonth = new Map<
       string,
       {
@@ -117,8 +96,8 @@ export default async function CartoesPage() {
       }
     >()
     for (const t of mine) {
-      if (t.is_transfer) continue // par de transferência (pagamento) não é charge
-      if (t.type === "income") continue // estorno: ignora por ora
+      if (t.is_transfer) continue
+      if (t.type === "income") continue
       const key = t.occurred_on.slice(0, 7)
       const bucket = byMonth.get(key) ?? {
         charges: [],
@@ -132,7 +111,7 @@ export default async function CartoesPage() {
         occurred_on: t.occurred_on,
         merchant: t.merchant,
         paid_at: t.paid_at,
-        isDetected: t.account_id !== card.id,
+        isDetected: false,
         accountName: accName,
       })
       if (t.paid_at) bucket.paidCents += Number(t.amount_cents)

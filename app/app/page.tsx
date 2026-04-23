@@ -39,7 +39,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase
       .from("transactions")
-      .select("type, amount_cents, occurred_on, category_id, is_transfer")
+      .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id")
       .eq("user_id", user.id)
       .gte("occurred_on", oldestStart),
     untyped(supabase)
@@ -115,15 +115,23 @@ export default async function DashboardPage() {
         typeof p.occurred_on === "string",
     )
 
+  // KPIs mensais (Entrada/Saída/Perda) não contam tx em cartão de
+  // crédito — esse dinheiro ainda não "saiu" da vida do user, só vai
+  // sair quando a fatura for paga (daí o pagamento sim entra em Saída).
+  const creditAccountIdSet = new Set(
+    (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
+  )
   const monthly = bucketizeTransactions(
     [
-      ...(monthTx ?? []).map((t) => ({
-        occurred_on: t.occurred_on,
-        type: t.type as "income" | "expense",
-        amount_cents: Number(t.amount_cents),
-        category_id: t.category_id,
-        is_transfer: t.is_transfer ?? false,
-      })),
+      ...(monthTx ?? [])
+        .filter((t) => !creditAccountIdSet.has(t.account_id))
+        .map((t) => ({
+          occurred_on: t.occurred_on,
+          type: t.type as "income" | "expense",
+          amount_cents: Number(t.amount_cents),
+          category_id: t.category_id,
+          is_transfer: t.is_transfer ?? false,
+        })),
       ...pendingVirtualTx.map((p) => ({
         occurred_on: p.occurred_on,
         type: p.type,

@@ -199,8 +199,18 @@ export async function resolvePendingCaptureAction(
     }
   }
 
+  // Cartão de crédito: charges individuais nunca são marcados pagos
+  // na criação — só ficam "pagos" quando a fatura inteira é paga.
+  const { data: targetAcc } = await supabase
+    .from("accounts")
+    .select("type")
+    .eq("id", parsed.accountId)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  const isCredit = targetAcc?.type === "credit"
+
   const today = new Date().toISOString().slice(0, 10)
-  const paidAt = resolvePaidAt(p.occurred_on, parsed.paid, today)
+  const paidAt = isCredit ? null : resolvePaidAt(p.occurred_on, parsed.paid, today)
 
   const { data: tx, error: txErr } = await untyped(supabase)
     .from("transactions")
