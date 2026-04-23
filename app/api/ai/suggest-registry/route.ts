@@ -87,29 +87,37 @@ export async function POST(req: Request) {
       )
     }
 
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: GROQ_MODELS.parser,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: description },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-        max_tokens: 512,
-      }),
-    })
+    const callGroq = (model: string) =>
+      fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            { role: "user", content: description },
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.2,
+          max_tokens: 512,
+        }),
+      })
+
+    let res = await callGroq(GROQ_MODELS.parser)
+    if (res.status === 429) {
+      // Rate limit no 70B → cai pro 8B como backup.
+      res = await callGroq("llama-3.1-8b-instant")
+    }
     if (!res.ok) {
       const txt = await res.text().catch(() => "")
-      return NextResponse.json(
-        { ok: false, error: `Groq ${res.status}: ${txt.slice(0, 120)}` },
-        { status: 502 },
-      )
+      const hint =
+        res.status === 429
+          ? "Rate limit Groq esgotado. Tente de novo em alguns minutos ou preencha manualmente."
+          : `Groq ${res.status}: ${txt.slice(0, 120)}`
+      return NextResponse.json({ ok: false, error: hint }, { status: 502 })
     }
     const respJson = (await res.json()) as {
       choices?: Array<{ message?: { content?: string } }>
