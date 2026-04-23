@@ -2,7 +2,7 @@
 
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
-import { requireUser } from "@/lib/auth"
+import { getUser, requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
@@ -334,9 +334,13 @@ export async function suggestBalanceRegistryAction(
 async function _suggestBalanceRegistryImpl(
   input: z.infer<typeof SuggestInputSchema>,
 ): Promise<SuggestResult> {
-  // requireUser NÃO em try/catch — precisa do redirect funcionar se
-  // sessão expirar
-  await requireUser()
+  // getUser em vez de requireUser — não redireciona, retorna null.
+  // Assim evita o NEXT_REDIRECT propagar em ação de IA (que é só
+  // leitura; não faz sentido forçar redirect, só retorna ok:false).
+  const user = await getUser()
+  if (!user) {
+    return { ok: false, error: "Sessão expirada. Recarregue a página." }
+  }
   const parsed = SuggestInputSchema.safeParse(input)
   if (!parsed.success) {
     return { ok: false, error: "Descrição inválida (mínimo 3 caracteres)." }
@@ -382,7 +386,7 @@ TEMPLATES TÍPICOS:
 
 Devolva APENAS JSON válido com exatamente esses 8 campos. Sem markdown, sem explicação.`
 
-  const user = `Descrição do usuário: ${parsed.data.description}
+  const userPrompt = `Descrição do usuário: ${parsed.data.description}
 
 JSON:`
 
@@ -392,7 +396,7 @@ JSON:`
       model: GROQ_MODELS.parser,
       messages: [
         { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "user", content: userPrompt },
       ],
       response_format: { type: "json_object" },
       temperature: 0.2,
