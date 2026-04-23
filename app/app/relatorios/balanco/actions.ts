@@ -201,70 +201,96 @@ const RegistrySchema = z.object({
   note: z.string().trim().max(300).nullable().optional(),
 })
 
+type RegistryResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string }
+
 export async function createBalanceRegistryAction(
   input: z.infer<typeof RegistrySchema>,
-) {
-  const user = await requireUser()
-  const parsed = RegistrySchema.parse(input)
-  const supabase = await createServerClient()
-  const stamp = Date.now()
+): Promise<RegistryResult> {
+  try {
+    const user = await getUser()
+    if (!user) {
+      return { ok: false, error: "Sessão expirada. Faça login novamente." }
+    }
 
-  // Log da operação
-  const { data: reg, error: regErr } = await untyped(supabase)
-    .from("balance_registries")
-    .insert({
-      user_id: user.id,
-      period: parsed.period,
-      kind: parsed.kind,
-      description: parsed.description,
-      amount_cents: parsed.amountCents,
-      debit_section: parsed.debitSection,
-      debit_label: parsed.debitLabel,
-      credit_section: parsed.creditSection,
-      credit_label: parsed.creditLabel,
-      note: parsed.note ?? null,
-    })
-    .select("id")
-    .single()
-  if (regErr) throw new Error(regErr.message)
-  const registryId = reg.id as string
+    const parseResult = RegistrySchema.safeParse(input)
+    if (!parseResult.success) {
+      const first = parseResult.error.issues[0]
+      return {
+        ok: false,
+        error: `Dados inválidos: ${first?.path.join(".") ?? "?"} — ${first?.message ?? "formato incorreto"}`,
+      }
+    }
+    const parsed = parseResult.data
 
-  // DÉBITO: adiciona ao lado que RECEBE valor.
-  // Seções "ativo_*" e "patrimonio_liquido" aumentam com sinal +;
-  // seções "passivo_*" diminuem dívida com sinal − (débito em passivo).
-  const debitSign = parsed.debitSection.startsWith("passivo") ? -1 : 1
+    const supabase = await createServerClient()
 
-  // CRÉDITO: subtrai do lado que FORNECE valor.
-  // Ativo/PL diminuem com −; Passivo aumenta com +.
-  const creditSign = parsed.creditSection.startsWith("passivo") ? 1 : -1
+    const { data: reg, error: regErr } = await untyped(supabase)
+      .from("balance_registries")
+      .insert({
+        user_id: user.id,
+        period: parsed.period,
+        kind: parsed.kind,
+        description: parsed.description,
+        amount_cents: parsed.amountCents,
+        debit_section: parsed.debitSection,
+        debit_label: parsed.debitLabel,
+        credit_section: parsed.creditSection,
+        credit_label: parsed.creditLabel,
+        note: parsed.note ?? null,
+      })
+      .select("id")
+      .single()
+    if (regErr) {
+      return { ok: false, error: `DB registry: ${regErr.message}` }
+    }
+    const registryId = reg.id as string
 
-  const pair = [
-    {
-      user_id: user.id,
-      period: parsed.period,
-      line_key: `${parsed.debitSection}::registry:${registryId}:debit`,
-      label: parsed.debitLabel,
-      amount_cents: parsed.amountCents * debitSign,
-      note: `${parsed.description}${parsed.note ? " · " + parsed.note : ""}`,
-      metadata: { registry_id: registryId, role: "debit", kind: parsed.kind },
-    },
-    {
-      user_id: user.id,
-      period: parsed.period,
-      line_key: `${parsed.creditSection}::registry:${registryId}:credit`,
-      label: parsed.creditLabel,
-      amount_cents: parsed.amountCents * creditSign,
-      note: `${parsed.description}${parsed.note ? " · " + parsed.note : ""}`,
-      metadata: { registry_id: registryId, role: "credit", kind: parsed.kind },
-    },
-  ]
-  const { error: adjErr } = await untyped(supabase)
-    .from("balance_adjustments")
-    .insert(pair)
-  if (adjErr) throw new Error(adjErr.message)
+    const debitSign = parsed.debitSection.startsWith("passivo") ? -1 : 1
+    const creditSign = parsed.creditSection.startsWith("passivo") ? 1 : -1
 
-  revalidatePath("/app/relatorios/balanco")
-  return { id: registryId }
+    const pair = [
+      {
+        user_id: user.id,
+        period: parsed.period,
+        line_key: `${parsed.debitSection}::registry:${registryId}:debit`,
+        label: parsed.debitLabel,
+        amount_cents: parsed.amountCents * debitSign,
+        note: `${parsed.description}${parsed.note ? " · " + parsed.note : ""}`,
+        metadata: { registry_id: registryId, role: "debit", kind: parsed.kind },
+      },
+      {
+        user_id: user.id,
+        period: parsed.period,
+        line_key: `${parsed.creditSection}::registry:${registryId}:credit`,
+        label: parsed.creditLabel,
+        amount_cents: parsed.amountCents * creditSign,
+        note: `${parsed.description}${parsed.note ? " · " + parsed.note : ""}`,
+        metadata: { registry_id: registryId, role: "credit", kind: parsed.kind },
+      },
+    ]
+    const { error: adjErr } = await untyped(supabase)
+      .from("balance_adjustments")
+      .insert(pair)
+    if (adjErr) {
+      return { ok: false, error: `DB adjustments: ${adjErr.message}` }
+    }
+
+    revalidatePath("/app/relatorios/balanco")
+    return { ok: true, id: registryId }
+  } catch (err) {
+    const digest = (err as { digest?: string })?.digest
+    if (digest && String(digest).startsWith("NEXT_")) throw err
+    console.error("[createBalanceRegistryAction] fatal:", err)
+    return {
+      ok: false,
+      error:
+        err instanceof Error && err.message
+          ? err.message
+          : "Erro interno inesperado.",
+    }
+  }
 }
 
 export async function deleteBalanceRegistryAction(registryId: string) {

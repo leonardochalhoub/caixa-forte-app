@@ -264,7 +264,7 @@ export function AddRegistryButton({ period }: { period: string }) {
     }
     start(async () => {
       try {
-        await createBalanceRegistryAction({
+        const r = await createBalanceRegistryAction({
           period,
           kind: kind.key,
           description: description.trim(),
@@ -275,6 +275,10 @@ export function AddRegistryButton({ period }: { period: string }) {
           creditLabel: creditLabel.trim(),
           note: note.trim() || null,
         })
+        if (!r.ok) {
+          toast.error(r.error)
+          return
+        }
         toast.success("Registro criado.")
         setDescription("")
         setAmount("")
@@ -283,7 +287,7 @@ export function AddRegistryButton({ period }: { period: string }) {
         setNote("")
         setOpen(false)
       } catch (err) {
-        toast.error((err as Error).message)
+        toast.error(`Falha: ${(err as Error).message}`)
       }
     })
   }
