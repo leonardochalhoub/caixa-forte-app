@@ -1,6 +1,6 @@
 "use client"
 
-import { Plus } from "lucide-react"
+import { Plus, Sparkles } from "lucide-react"
 import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,7 +22,10 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
 import { parseBRLToCents } from "@/lib/money"
-import { createBalanceRegistryAction } from "../actions"
+import {
+  createBalanceRegistryAction,
+  suggestBalanceRegistryAction,
+} from "../actions"
 
 // Templates visíveis no UI (espelha REGISTRY_KINDS do server).
 const KINDS = [
@@ -111,6 +114,8 @@ export function AddRegistryButton({ period }: { period: string }) {
   const [kindIdx, setKindIdx] = useState(0)
   const kind = KINDS[kindIdx]!
 
+  const [aiPrompt, setAiPrompt] = useState("")
+  const [aiPending, startAi] = useTransition()
   const [description, setDescription] = useState("")
   const [amount, setAmount] = useState("")
   const [debitSection, setDebitSection] = useState<string>(kind.debitDefault)
@@ -125,6 +130,40 @@ export function AddRegistryButton({ period }: { period: string }) {
     const k = KINDS[i]!
     setDebitSection(k.debitDefault)
     setCreditSection(k.creditDefault)
+  }
+
+  function askAI() {
+    if (aiPrompt.trim().length < 3) {
+      toast.error("Escreva pelo menos uma frase do que você quer registrar.")
+      return
+    }
+    startAi(async () => {
+      try {
+        const r = await suggestBalanceRegistryAction({
+          description: aiPrompt.trim(),
+        })
+        setDescription(r.description)
+        setDebitSection(r.debit_section)
+        setDebitLabel(r.debit_label)
+        setCreditSection(r.credit_section)
+        setCreditLabel(r.credit_label)
+        if (r.amount_cents != null) {
+          setAmount(
+            (r.amount_cents / 100)
+              .toFixed(2)
+              .replace(".", ",")
+              .replace(/\B(?=(\d{3})+(?!\d))/g, "."),
+          )
+        }
+        if (r.note) setNote(r.note)
+        // Ajusta kindIdx pelo kind retornado
+        const idx = KINDS.findIndex((k) => k.key === r.kind)
+        if (idx >= 0) setKindIdx(idx)
+        toast.success("Formulário preenchido pela IA — revise e ajuste.")
+      } catch (err) {
+        toast.error((err as Error).message)
+      }
+    })
   }
 
   function submit(e: React.FormEvent) {
@@ -167,104 +206,144 @@ export function AddRegistryButton({ period }: { period: string }) {
         Adicionar Registro
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Novo registro contábil</DialogTitle>
             <DialogDescription>
               Partida dobrada: o valor que entra em uma linha sai de outra.
-              Escolha o tipo abaixo — a gente pré-preenche os lados certos.
+              Descreva com IA ou escolha o tipo manualmente.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={submit} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Tipo de operação</Label>
-              <Select
-                value={String(kindIdx)}
-                onValueChange={(v) => selectKind(Number(v))}
+
+          {/* IA helper */}
+          <div className="space-y-2 rounded-lg border border-strong/20 bg-subtle p-3">
+            <Label
+              htmlFor="reg-ai"
+              className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-strong"
+            >
+              <Sparkles className="h-3 w-3" />
+              Descreva e a IA preenche
+            </Label>
+            <div className="flex gap-2">
+              <textarea
+                id="reg-ai"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={2}
+                placeholder='Ex: "Paguei pensão alimentícia R$ 500 da Caixa EF" ou "Comprei bicicleta no Nubank Cartão por 2500"'
+                className="flex-1 rounded-md border border-border bg-canvas px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-strong"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={askAI}
+                disabled={aiPending}
+                className="shrink-0 self-start"
               >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {KINDS.map((k, i) => (
-                    <SelectItem key={k.key} value={String(i)}>
-                      {k.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs italic text-muted">{kind.hint}</p>
+                {aiPending ? "…" : "Preencher"}
+              </Button>
+            </div>
+            <p className="text-[10px] italic text-muted">
+              A IA só sugere — você revisa e edita antes de salvar.
+            </p>
+          </div>
+
+          <form onSubmit={submit} className="space-y-3">
+            {/* Linha 1: Tipo + Descrição + Valor */}
+            <div className="grid gap-3 md:grid-cols-[1fr_1.4fr_140px]">
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Select
+                  value={String(kindIdx)}
+                  onValueChange={(v) => selectKind(Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {KINDS.map((k, i) => (
+                      <SelectItem key={k.key} value={String(i)}>
+                        {k.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reg-desc">Descrição</Label>
+                <Input
+                  id="reg-desc"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Ex: Pagamento pensão alimentícia"
+                  required
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reg-amount">Valor (R$)</Label>
+                <Input
+                  id="reg-amount"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="0,00"
+                  required
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="reg-desc">Descrição da operação</Label>
-              <Input
-                id="reg-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Ex: Compra carro Renault Kwid"
-                required
-              />
-            </div>
+            <p className="text-[10px] italic text-muted">{kind.hint}</p>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="reg-amount">Valor (R$)</Label>
-              <Input
-                id="reg-amount"
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="0,00"
-                required
-              />
-            </div>
+            {/* 2 colunas em desktop, empilha em mobile */}
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1.5 rounded-lg border border-income/30 bg-income/5 p-3">
+                <Label className="text-[10px] uppercase tracking-wider text-income">
+                  Débito (entra na linha)
+                </Label>
+                <Select value={debitSection} onValueChange={setDebitSection}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTIONS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={debitLabel}
+                  onChange={(e) => setDebitLabel(e.target.value)}
+                  placeholder={kind.debitPlaceholder}
+                  required
+                />
+              </div>
 
-            <div className="space-y-1.5 rounded-lg border border-income/30 bg-income/5 p-3">
-              <Label className="text-[10px] uppercase tracking-wider text-income">
-                Débito (entra na)
-              </Label>
-              <Select value={debitSection} onValueChange={setDebitSection}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECTIONS.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={debitLabel}
-                onChange={(e) => setDebitLabel(e.target.value)}
-                placeholder={kind.debitPlaceholder}
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5 rounded-lg border border-expense/30 bg-expense/5 p-3">
-              <Label className="text-[10px] uppercase tracking-wider text-expense">
-                Crédito (sai da)
-              </Label>
-              <Select value={creditSection} onValueChange={setCreditSection}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SECTIONS.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>
-                      {s.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                value={creditLabel}
-                onChange={(e) => setCreditLabel(e.target.value)}
-                placeholder={kind.creditPlaceholder}
-                required
-              />
+              <div className="space-y-1.5 rounded-lg border border-expense/30 bg-expense/5 p-3">
+                <Label className="text-[10px] uppercase tracking-wider text-expense">
+                  Crédito (sai da linha)
+                </Label>
+                <Select value={creditSection} onValueChange={setCreditSection}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTIONS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={creditLabel}
+                  onChange={(e) => setCreditLabel(e.target.value)}
+                  placeholder={kind.creditPlaceholder}
+                  required
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -274,7 +353,7 @@ export function AddRegistryButton({ period }: { period: string }) {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
-                className="flex min-h-[60px] w-full rounded-md border border-border bg-subtle px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-strong"
+                className="flex min-h-[50px] w-full rounded-md border border-border bg-subtle px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-strong"
                 placeholder="Nota explicativa, fonte, contexto"
               />
             </div>

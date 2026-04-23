@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
+import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
 
 const CreateSchema = z.object({
   period: z.string().min(1),
@@ -264,6 +265,124 @@ export async function createBalanceRegistryAction(
 
   revalidatePath("/app/relatorios/balanco")
   return { id: registryId }
+}
+
+// IA suggestion: recebe texto livre do user e devolve os campos
+// preenchidos pra partida dobrada. Não cria nada — só sugere.
+const AI_SECTIONS = [
+  "ativo_circulante_disponivel",
+  "ativo_circulante_renda_fixa",
+  "ativo_circulante_renda_variavel",
+  "ativo_circulante_cripto",
+  "ativo_circulante_outros",
+  "ativo_nc_bloqueado",
+  "ativo_nc_imobilizado",
+  "ativo_nc_intangivel",
+  "passivo_circulante_cartoes",
+  "passivo_circulante_outros",
+  "passivo_nc_financiamentos",
+  "patrimonio_liquido",
+] as const
+
+const AI_KINDS = [
+  "compra_vista",
+  "compra_financiada",
+  "aporte",
+  "retirada",
+  "valorizacao",
+  "pagamento_divida",
+  "emprestimo",
+  "reclassificacao",
+] as const
+
+const SuggestInputSchema = z.object({
+  description: z.string().trim().min(3).max(400),
+})
+
+export async function suggestBalanceRegistryAction(
+  input: z.infer<typeof SuggestInputSchema>,
+): Promise<{
+  kind: (typeof AI_KINDS)[number]
+  description: string
+  debit_section: (typeof AI_SECTIONS)[number]
+  debit_label: string
+  credit_section: (typeof AI_SECTIONS)[number]
+  credit_label: string
+  amount_cents: number | null
+  note: string | null
+}> {
+  await requireUser()
+  const parsed = SuggestInputSchema.parse(input)
+  const groq = getGroqClient()
+  if (!groq) throw new Error("IA indisponível (GROQ_API_KEY ausente)")
+
+  const system = `Você é um contador brasileiro. O usuário descreve uma operação financeira pessoal e você devolve JSON com os campos da partida dobrada.
+
+REGRAS:
+- "kind" ∈ [${AI_KINDS.join(", ")}]
+  - compra_vista = comprou bem com dinheiro da conta
+  - compra_financiada = comprou bem com empréstimo/financiamento
+  - aporte = dinheiro de fora entrou (presente, herança, capital)
+  - retirada = saída do PL (pagamento de despesa pessoal simples como PENSÃO, ALUGUEL, CONTA DE LUZ, IMPOSTO sem contrapartida de ativo/passivo)
+  - valorizacao = reavaliação de um ativo (imóvel valorizou, FIPE atualizou)
+  - pagamento_divida = pagou parcela/quitação de dívida registrada
+  - emprestimo = pegou empréstimo (cash entra + dívida nova)
+  - reclassificacao = transfere valor entre linhas sem mudar total
+
+- "debit_section" ∈ [${AI_SECTIONS.join(", ")}] = linha que AUMENTA (se ativo) ou que DIMINUI (se passivo)
+- "credit_section" idem = linha que AUMENTA (se passivo/PL) ou DIMINUI (se ativo)
+
+TEMPLATES TÍPICOS:
+- Pagamento de pensão/aluguel/despesa simples:
+    kind=retirada, debit=patrimonio_liquido (despesa reduz PL), credit=ativo_circulante_disponivel
+- Pagamento de fatura cartão:
+    kind=pagamento_divida, debit=passivo_circulante_cartoes, credit=ativo_circulante_disponivel
+- Pagou parcela de financiamento carro:
+    kind=pagamento_divida, debit=passivo_nc_financiamentos, credit=ativo_circulante_disponivel
+- Comprou algo grande à vista:
+    kind=compra_vista, debit=ativo_nc_imobilizado, credit=ativo_circulante_disponivel
+- Ganhou presente/herança em dinheiro:
+    kind=aporte, debit=ativo_circulante_disponivel, credit=patrimonio_liquido
+- Valorização imóvel/carro:
+    kind=valorizacao, debit=ativo_nc_imobilizado, credit=patrimonio_liquido
+
+- "debit_label" / "credit_label" = nome curto, humano, que vai aparecer no Balanço (ex: "Pensão alimentícia", "Conta corrente Nubank", "Imóvel SP")
+- "amount_cents" = valor em centavos se mencionado, senão null
+- "note" = observação útil ou null
+
+Devolva APENAS JSON válido com exatamente esses 8 campos. Sem markdown, sem explicação.`
+
+  const user = `Descrição do usuário: ${parsed.description}
+
+JSON:`
+
+  const resp = await groq.chat.completions.create({
+    model: GROQ_MODELS.parser,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+    response_format: { type: "json_object" },
+    temperature: 0.2,
+    max_tokens: 512,
+  })
+  const content = resp.choices[0]?.message?.content
+  if (!content) throw new Error("IA retornou vazio")
+
+  const json = JSON.parse(content) as Record<string, unknown>
+
+  // Validação mínima
+  const SuggestOutputSchema = z.object({
+    kind: z.enum(AI_KINDS),
+    description: z.string().trim().min(1).max(120),
+    debit_section: z.enum(AI_SECTIONS),
+    debit_label: z.string().trim().min(1).max(80),
+    credit_section: z.enum(AI_SECTIONS),
+    credit_label: z.string().trim().min(1).max(80),
+    amount_cents: z.number().int().nullable(),
+    note: z.string().trim().nullable(),
+  })
+  return SuggestOutputSchema.parse(json)
 }
 
 export async function deleteBalanceRegistryAction(registryId: string) {
