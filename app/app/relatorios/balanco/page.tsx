@@ -682,23 +682,53 @@ export default async function BalancoPage({
               title="Passivo Circulante"
               total={passivoCirculanteTotal}
             />
-            <Bucket bucket={passivoCartoes} />
-            <AdjList
-              items={adjustmentsBySection.get("passivo_circulante_cartoes") ?? []}
-            />
-            <AdjList
-              items={adjustmentsBySection.get("passivo_circulante_outros") ?? []}
-              hint="Outros passivos circulantes"
-            />
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Cartões de Crédito"
+                total={passivoCartoes?.total ?? 0}
+              />
+              <Bucket bucket={passivoCartoes} />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("passivo_circulante_cartoes") ?? []
+                }
+              />
+            </div>
+            {(adjustmentsBySection.get("passivo_circulante_outros") ?? [])
+              .length > 0 && (
+              <div className="pl-2">
+                <SubSectionHeader
+                  title="Outros"
+                  total={sumAdj("passivo_circulante_outros")}
+                />
+                <AdjList
+                  items={
+                    adjustmentsBySection.get("passivo_circulante_outros") ?? []
+                  }
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-2 pt-3">
-            <SectionHeader title="Passivo Não Circulante" total={passivoNCTotal} />
-            <AdjList
-              items={
-                adjustmentsBySection.get("passivo_nc_financiamentos") ?? []
-              }
+            <SectionHeader
+              title="Passivo Não Circulante"
+              total={passivoNCTotal}
             />
+            {(adjustmentsBySection.get("passivo_nc_financiamentos") ?? [])
+              .length > 0 && (
+              <div className="pl-2">
+                <SubSectionHeader
+                  title="Financiamentos"
+                  total={sumAdj("passivo_nc_financiamentos")}
+                />
+                <AdjList
+                  items={
+                    adjustmentsBySection.get("passivo_nc_financiamentos") ?? []
+                  }
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-baseline justify-between border-t border-border pt-3">
@@ -833,11 +863,11 @@ function SectionHeader({ title, total }: { title: string; total: number }) {
 
 function SubSectionHeader({ title, total }: { title: string; total: number }) {
   return (
-    <div className="mt-2 flex items-baseline justify-between">
-      <span className="text-[11px] uppercase tracking-wider text-muted">
+    <div className="mt-2 flex items-baseline justify-between pl-3">
+      <span className="text-[11px] font-medium uppercase tracking-wider text-muted">
         {title}
       </span>
-      <span className="font-mono text-xs tabular-nums text-body">
+      <span className="font-mono text-xs font-medium tabular-nums text-body">
         {formatBRL(total)}
       </span>
     </div>
@@ -903,29 +933,23 @@ function Bucket({
     | undefined
 }) {
   if (!bucket || bucket.lines.length === 0) return null
+  // Renderiza só as linhas (contas). O título + total do bucket já é
+  // mostrado pelo SubSectionHeader no nível acima — evita duplicação.
   return (
-    <div className="space-y-1 pl-4 text-xs">
-      <div className="flex items-baseline justify-between text-body">
-        <span>{bucket.label}</span>
-        <span className="font-mono tabular-nums">
-          {formatBRL(bucket.total)}
-        </span>
-      </div>
-      <ul className="space-y-0.5 pl-3">
-        {[...bucket.lines]
-          .sort((a, b) => b.cents - a.cents)
-          .map((l) => (
-            <li
-              key={l.accountId}
-              className="flex items-baseline justify-between text-[11px] text-muted"
-            >
-              <span>↳ {l.accountName}</span>
-              <span className="font-mono tabular-nums">
-                {formatBRL(l.cents)}
-              </span>
-            </li>
-          ))}
-      </ul>
-    </div>
+    <ul className="space-y-0.5 pl-7">
+      {[...bucket.lines]
+        .sort((a, b) => b.cents - a.cents)
+        .map((l) => (
+          <li
+            key={l.accountId}
+            className="flex items-baseline justify-between text-[11px] text-muted"
+          >
+            <span>↳ {l.accountName}</span>
+            <span className="font-mono tabular-nums">
+              {formatBRL(l.cents)}
+            </span>
+          </li>
+        ))}
+    </ul>
   )
 }
