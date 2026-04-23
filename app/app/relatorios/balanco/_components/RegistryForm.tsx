@@ -171,19 +171,33 @@ export function AddRegistryButton({ period }: { period: string }) {
 
   function transcribeAndSuggest(blob: Blob) {
     setTranscribing(true)
-    startAi(async () => {
+    // Transcreve primeiro, mostra no textbox, depois IA preenche.
+    // Isso garante que o user vê o texto mesmo se a IA falhar.
+    ;(async () => {
       try {
         const fd = new FormData()
         fd.append("audio", blob, "registro.webm")
         const t = await transcribeAudioOnlyAction(fd)
         if (!t.ok || !t.text) {
           toast.error(t.error ?? "Não consegui transcrever.")
-          setTranscribing(false)
           return
         }
-        setAiPrompt(t.text)
-        // Emenda: chama IA direto com o texto transcrito
-        const r = await suggestBalanceRegistryAction({ description: t.text })
+        const txt = t.text!
+        setAiPrompt(txt)
+        // Pequeno delay pra UI atualizar antes de chamar IA
+        setTimeout(() => runAI(txt), 100)
+      } catch (err) {
+        toast.error((err as Error).message)
+      } finally {
+        setTranscribing(false)
+      }
+    })()
+  }
+
+  function runAI(prompt: string) {
+    startAi(async () => {
+      try {
+        const r = await suggestBalanceRegistryAction({ description: prompt })
         setDescription(r.description)
         setDebitSection(r.debit_section)
         setDebitLabel(r.debit_label)
@@ -200,11 +214,11 @@ export function AddRegistryButton({ period }: { period: string }) {
         if (r.note) setNote(r.note)
         const idx = KINDS.findIndex((k) => k.key === r.kind)
         if (idx >= 0) setKindIdx(idx)
-        toast.success("Áudio processado — revise e ajuste.")
+        toast.success("IA sugeriu os campos — revise e ajuste.")
       } catch (err) {
-        toast.error((err as Error).message)
-      } finally {
-        setTranscribing(false)
+        toast.error(
+          `IA falhou: ${(err as Error).message}. Edite o texto e tente de novo, ou preencha manualmente.`,
+        )
       }
     })
   }
@@ -214,33 +228,7 @@ export function AddRegistryButton({ period }: { period: string }) {
       toast.error("Escreva pelo menos uma frase do que você quer registrar.")
       return
     }
-    startAi(async () => {
-      try {
-        const r = await suggestBalanceRegistryAction({
-          description: aiPrompt.trim(),
-        })
-        setDescription(r.description)
-        setDebitSection(r.debit_section)
-        setDebitLabel(r.debit_label)
-        setCreditSection(r.credit_section)
-        setCreditLabel(r.credit_label)
-        if (r.amount_cents != null) {
-          setAmount(
-            (r.amount_cents / 100)
-              .toFixed(2)
-              .replace(".", ",")
-              .replace(/\B(?=(\d{3})+(?!\d))/g, "."),
-          )
-        }
-        if (r.note) setNote(r.note)
-        // Ajusta kindIdx pelo kind retornado
-        const idx = KINDS.findIndex((k) => k.key === r.kind)
-        if (idx >= 0) setKindIdx(idx)
-        toast.success("Formulário preenchido pela IA — revise e ajuste.")
-      } catch (err) {
-        toast.error((err as Error).message)
-      }
-    })
+    runAI(aiPrompt.trim())
   }
 
   function submit(e: React.FormEvent) {
@@ -300,6 +288,9 @@ export function AddRegistryButton({ period }: { period: string }) {
             >
               <Sparkles className="h-3 w-3" />
               Descreva e a IA preenche
+              <span className="ml-1 rounded-full border border-border bg-canvas px-1.5 py-0.5 text-[9px] font-normal normal-case tracking-normal text-muted">
+                Llama 3.3 70B · Groq
+              </span>
             </Label>
             <div className="flex gap-2">
               <textarea

@@ -356,20 +356,40 @@ Devolva APENAS JSON válido com exatamente esses 8 campos. Sem markdown, sem exp
 
 JSON:`
 
-  const resp = await groq.chat.completions.create({
-    model: GROQ_MODELS.parser,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.2,
-    max_tokens: 512,
-  })
-  const content = resp.choices[0]?.message?.content
+  let content: string | null = null
+  try {
+    const resp = await groq.chat.completions.create({
+      model: GROQ_MODELS.parser,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+      max_tokens: 512,
+    })
+    content = resp.choices[0]?.message?.content ?? null
+  } catch (err) {
+    throw new Error(
+      `Groq indisponível: ${(err as Error).message ?? "erro desconhecido"}`,
+    )
+  }
   if (!content) throw new Error("IA retornou vazio")
 
-  const json = JSON.parse(content) as Record<string, unknown>
+  // Remove fences markdown se a IA empacotar (```json ... ```).
+  const cleaned = content
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim()
+
+  let json: Record<string, unknown>
+  try {
+    json = JSON.parse(cleaned) as Record<string, unknown>
+  } catch {
+    throw new Error(
+      `IA retornou formato inválido. Início: ${content.slice(0, 120)}`,
+    )
+  }
 
   // Validação mínima
   // Parse tolerante: Groq às vezes retorna amount como string ou note
