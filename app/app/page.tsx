@@ -284,15 +284,11 @@ export default async function DashboardPage() {
     const base = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
     const detected = detectedCardDebt.get(a.id) ?? 0
     const isCredit = (a.type as AccountType) === "credit"
-    // Pra cartão: dívida detectada é o "total oficial" da fatura
-    // (lump-sum). Os charges itemizados já estão em `base` via flow —
-    // se o lump-sum cobre ou excede os itemizados, ele É o total.
-    // Regra: balance = opening - max(|flow cartão|, detected).
-    // Pra demais contas: detected = 0, fica só base.
+    // Cartão: balanceCents = dívida TOTAL da fatura (charges itemizados
+    // + lump-sum detectado). Entra no saldo total do hero — o user
+    // quer ver o dinheiro já comprometido com o cartão descontado.
     let balance = base
     if (isCredit) {
-      // Lump-sum = valor base da fatura (original). Itemizados (card
-      // flow) = compras novas em cima. Total debt = soma dos dois.
       const itemizedDebt = Math.abs(
         base - Number(a.opening_balance_cents ?? 0),
       )
@@ -331,15 +327,16 @@ export default async function DashboardPage() {
   // Credit card balance = running debt (negative when you owe). Subtracted
   // from the "liquid + savings + investments" net worth.
   const creditCents = creditAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  // Saldo = dinheiro disponível + investimentos. FGTS fica de fora
-  // (bloqueado) e cartão de crédito também — dívida só derruba o saldo
-  // quando a fatura é paga (o transfer pair debita a conta corrente).
-  // Pendentes reduzem, são dinheiro já gasto sem conta atribuída.
+  // Saldo = dinheiro disponível + investimentos − dívida cheia do
+  // cartão (fatura total com itemizados + lump-sum). FGTS fica
+  // de fora (bloqueado). Pendentes reduzem, dinheiro já gasto sem
+  // conta atribuída.
   const totalBalanceCents =
     liquidCents +
     savingsCents +
     investmentCents +
     cryptoCents +
+    creditCents +
     pendingNetCents
 
   const creditIdsForFilter = new Set(

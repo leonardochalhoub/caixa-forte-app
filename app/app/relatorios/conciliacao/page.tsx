@@ -267,6 +267,16 @@ export default async function ConciliacaoPage({
     const last = r.within[r.within.length - 1]!
     return last.created_at || `${last.occurred_on}T00:00:00Z`
   }
+  // Separa saídas "normais" das saídas de fatura de cartão
+  // (charges no cartão + lump-sum detectado) pra mostrar na prova
+  // matemática quanto veio do cartão vs. do resto.
+  const cardFatureCents = rows
+    .filter((r) => r.account.type === "credit")
+    .reduce((s, r) => s + r.expenseCents, 0)
+  const nonCardExpenseCents = rows
+    .filter((r) => r.account.type !== "credit" && r.account.type !== "fgts")
+    .reduce((s, r) => s + r.expenseCents, 0)
+
   const nonFgts = rows
     .filter((r) => r.account.type !== "fgts")
     .sort((a, b) => {
@@ -689,9 +699,18 @@ export default async function ConciliacaoPage({
             <ArrowDown className="h-3.5 w-3.5" />
             saídas
             <span className="font-mono font-semibold">
-              {formatBRL(totalExpenseCents)}
+              {formatBRL(nonCardExpenseCents + pendingExpenseCents)}
             </span>
           </span>
+          {cardFatureCents > 0 && (
+            <span className="inline-flex items-center gap-1 text-expense">
+              <ArrowDown className="h-3.5 w-3.5" />
+              fatura cartão
+              <span className="font-mono font-semibold">
+                {formatBRL(cardFatureCents)}
+              </span>
+            </span>
+          )}
           {(accountsTotal.transferInCents > 0 ||
             accountsTotal.transferOutCents > 0) && (
             <span className="inline-flex items-center gap-1 text-muted">
