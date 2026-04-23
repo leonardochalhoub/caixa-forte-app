@@ -16,7 +16,9 @@ export function BalancoAIInsight({
 }: {
   snapshot: Record<string, unknown>
 }) {
-  const [question, setQuestion] = useState("")
+  const [question, setQuestion] = useState(
+    "Faça uma análise geral do meu balanço patrimonial: resuma a posição, aponte pontos fortes e riscos (concentração, liquidez, endividamento) e termine com uma sugestão priorizada do que eu deveria fazer primeiro.",
+  )
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [pending, start] = useTransition()
   const [recording, setRecording] = useState(false)
@@ -67,7 +69,7 @@ export function BalancoAIInsight({
           toast.error(t.error ?? "Não consegui transcrever.")
           return
         }
-        setQuestion((prev) => (prev ? `${prev} ${t.text}` : t.text!))
+        setQuestion(t.text!)
       } catch (err) {
         toast.error((err as Error).message)
       } finally {
@@ -115,15 +117,16 @@ export function BalancoAIInsight({
         </Label>
       </div>
       <p className="text-[11px] italic text-muted">
-        Pergunte qualquer coisa sobre o balanço acima — ou deixe em branco para
-        receber uma análise geral com pontos fortes, fracos e sugestão.
+        Pergunta pré-preenchida com a análise geral — edite livremente ou
+        substitua por algo específico (ex: &quot;Posso comprar um imóvel?&quot;,
+        &quot;Onde está meu maior risco?&quot;).
       </p>
       <div className="flex gap-2">
         <textarea
           id="balanco-ai-question"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          rows={2}
+          rows={3}
           placeholder='Ex: "Estou bem posicionado pra comprar um imóvel?" ou "Onde estou concentrando risco?"'
           className="flex-1 rounded-md border border-border bg-canvas px-3 py-2 text-sm placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-strong"
           disabled={pending}
