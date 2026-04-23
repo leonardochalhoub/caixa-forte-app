@@ -57,7 +57,7 @@ export default function RelatoriosPage() {
         </h1>
         <p className="text-sm text-muted">
           Relatórios estruturados com prova matemática dos números. Cada um tem
-          filtros de período e exporta em PDF e CSV.
+          filtros de período e exporta em PDF e XLSX.
         </p>
       </div>
 
