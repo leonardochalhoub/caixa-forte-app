@@ -37,30 +37,32 @@ export default async function ContasPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold text-strong">Contas</h1>
       <AccountsManager
-        accounts={((accounts ?? []) as unknown[]).map((a) => {
-          const row = a as {
-            id: string
-            name: string
-            type: string
-            sort_order: number
-            archived_at: string | null
-            opening_balance_cents: number | null
-            balance_classification: "circulante" | "nao_circulante" | null
-          }
-          return {
-            id: row.id,
-            name: row.name,
-            type: row.type as AccountType,
-            sort_order: row.sort_order,
-            archived_at: row.archived_at,
-            openingBalanceCents: Number(row.opening_balance_cents ?? 0),
-            flowCents: flowMap.get(row.id) ?? 0,
-            balanceCents:
-              Number(row.opening_balance_cents ?? 0) +
-              (flowMap.get(row.id) ?? 0),
-            balanceClassification: row.balance_classification,
-          }
-        })}
+        accounts={((accounts ?? []) as unknown[])
+          .map((a) => {
+            const row = a as {
+              id: string
+              name: string
+              type: string
+              sort_order: number
+              archived_at: string | null
+              opening_balance_cents: number | null
+              balance_classification: "circulante" | "nao_circulante" | null
+            }
+            return {
+              id: row.id,
+              name: row.name,
+              type: row.type as AccountType,
+              sort_order: row.sort_order,
+              archived_at: row.archived_at,
+              openingBalanceCents: Number(row.opening_balance_cents ?? 0),
+              flowCents: flowMap.get(row.id) ?? 0,
+              balanceCents:
+                Number(row.opening_balance_cents ?? 0) +
+                (flowMap.get(row.id) ?? 0),
+              balanceClassification: row.balance_classification,
+            }
+          })
+          .filter((a) => a.type !== "credit")}
       />
     </div>
   )
