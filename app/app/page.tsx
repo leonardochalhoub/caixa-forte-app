@@ -42,6 +42,9 @@ export default async function DashboardPage() {
       .select("type, amount_cents, occurred_on, category_id, is_transfer, account_id")
       .eq("user_id", user.id)
       .gte("occurred_on", oldestStart),
+    // "Últimas transações" no dashboard só mostra movimentações das
+    // contas normais. Tx em cartão de crédito (charges) ficam dentro
+    // da fatura em /app/cartoes — não aparecem aqui pra não poluir.
     untyped(supabase)
       .from("transactions")
       .select(
@@ -50,7 +53,7 @@ export default async function DashboardPage() {
       .eq("user_id", user.id)
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(50),
+      .limit(100),
     supabase
       .from("accounts")
       .select("id, name, type, opening_balance_cents")
@@ -212,13 +215,22 @@ export default async function DashboardPage() {
   const accountsWithBalance = (accounts ?? []).map((a) => {
     const base = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
     const detected = detectedCardDebt.get(a.id) ?? 0
+    const isCredit = (a.type as AccountType) === "credit"
+    // Pra cartão: dívida detectada é o "total oficial" da fatura
+    // (lump-sum). Os charges itemizados já estão em `base` via flow —
+    // se o lump-sum cobre ou excede os itemizados, ele É o total.
+    // Regra: balance = opening - max(|flow cartão|, detected).
+    // Pra demais contas: detected = 0, fica só base.
+    let balance = base
+    if (isCredit && detected > 0) {
+      const cardDebt = Math.max(Math.abs(base - Number(a.opening_balance_cents ?? 0)), detected)
+      balance = Number(a.opening_balance_cents ?? 0) - cardDebt
+    }
     return {
       id: a.id,
       name: a.name,
       type: a.type as AccountType,
-      // Pra cartão, dívida detectada em outras contas é SUBTRAÍDA do
-      // saldo (aumenta a dívida). Pra outras contas, detected=0.
-      balanceCents: base - detected,
+      balanceCents: balance,
     }
   })
 
@@ -473,31 +485,36 @@ export default async function DashboardPage() {
           </a>
         </div>
         <RecentTransactions
-          transactions={(recentTx ?? []).map((t: {
-            id: string
-            type: string
-            amount_cents: number
-            occurred_on: string
-            merchant: string | null
-            note: string | null
-            needs_review: boolean | null
-            account_id: string
-            category_id: string | null
-            created_at: string
-            paid_at: string | null
-          }) => ({
-            id: t.id,
-            type: t.type as "income" | "expense",
-            amount_cents: Number(t.amount_cents),
-            occurred_on: t.occurred_on,
-            merchant: t.merchant,
-            note: t.note,
-            needs_review: t.needs_review ?? false,
-            account_id: t.account_id,
-            category_id: t.category_id,
-            created_at: t.created_at,
-            paid_at: t.paid_at,
-          }))}
+          transactions={(recentTx ?? [])
+            .filter(
+              (t: { account_id: string }) => !creditIdsForFilter.has(t.account_id),
+            )
+            .slice(0, 50)
+            .map((t: {
+              id: string
+              type: string
+              amount_cents: number
+              occurred_on: string
+              merchant: string | null
+              note: string | null
+              needs_review: boolean | null
+              account_id: string
+              category_id: string | null
+              created_at: string
+              paid_at: string | null
+            }) => ({
+              id: t.id,
+              type: t.type as "income" | "expense",
+              amount_cents: Number(t.amount_cents),
+              occurred_on: t.occurred_on,
+              merchant: t.merchant,
+              note: t.note,
+              needs_review: t.needs_review ?? false,
+              account_id: t.account_id,
+              category_id: t.category_id,
+              created_at: t.created_at,
+              paid_at: t.paid_at,
+            }))}
           accounts={accountsWithBalance}
           categories={categories ?? []}
         />

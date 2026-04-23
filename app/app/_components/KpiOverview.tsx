@@ -265,7 +265,7 @@ function HeroBalance({
           {aside && <div className="min-w-0">{aside}</div>}
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <BreakdownPanel
             icon={<Banknote className="h-3 w-3" />}
             title="Conta Corrente"
@@ -333,6 +333,7 @@ function BreakdownPanel({
   emptyHint,
   dashed,
   footnote,
+  sortByDebt,
 }: {
   icon: ReactNode
   title: string
@@ -341,6 +342,9 @@ function BreakdownPanel({
   emptyHint: string
   dashed?: boolean
   footnote?: string
+  // true = ordena do mais negativo pro menos (maior dívida primeiro).
+  // Usado pelo painel de cartão.
+  sortByDebt?: boolean
 }) {
   return (
     <div
@@ -359,7 +363,11 @@ function BreakdownPanel({
       ) : (
         <ul className="space-y-1">
           {[...accounts]
-            .sort((a, b) => b.balanceCents - a.balanceCents)
+            .sort((a, b) =>
+              sortByDebt
+                ? a.balanceCents - b.balanceCents
+                : b.balanceCents - a.balanceCents,
+            )
             .map((acc) => {
               const { bank } = splitBankAndSub(acc.name)
               const label = shortBankName(bank)

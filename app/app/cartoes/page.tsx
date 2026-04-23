@@ -56,24 +56,28 @@ export default async function CartoesPage() {
     paid_at: string | null
     is_transfer: boolean | null
   }
-  // Só tx vivendo NO cartão são charges. Pagamento da fatura (lump-sum
-  // em outra conta) aparece no próprio dashboard como agendada — não
-  // mistura na fatura aqui, senão o total dá double-count.
-  const cardIds = (cards ?? []).map((c) => c.id)
-  const { data: txsRaw } = cardIds.length
-    ? await untyped(supabase)
-        .from("transactions")
-        .select(
-          "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer",
-        )
-        .eq("user_id", user.id)
-        .in("account_id", cardIds)
-        .order("occurred_on", { ascending: false })
-    : { data: [] }
+  // Busca TODAS as tx pra detectar tanto os charges itemizados (no
+  // cartão) quanto o lump-sum de fatura (em outra conta). Lump-sum
+  // serve de source-of-truth pra "total da fatura"; itemizados são
+  // breakdown.
+  const { data: txsRaw } = await untyped(supabase)
+    .from("transactions")
+    .select(
+      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer",
+    )
+    .eq("user_id", user.id)
+    .order("occurred_on", { ascending: false })
   const allTxs = (txsRaw ?? []) as CardTx[]
   const allAccountsById = new Map(
     [...(cards ?? []), ...(checkingAccounts ?? [])].map((a) => [a.id, a]),
   )
+
+  const normalize = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const bankKeyOf = (cardName: string): string => {
+    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
+    return normalize(cleaned.split(/\s+/)[0] ?? "")
+  }
 
   type InvoiceCharge = {
     id: string
@@ -81,56 +85,104 @@ export default async function CartoesPage() {
     occurred_on: string
     merchant: string | null
     paid_at: string | null
-    isDetected: boolean
+    isLumpSum: boolean
     accountName: string
   }
 
   const cardInvoices = (cards ?? []).map((card) => {
-    const mine = allTxs.filter((t) => t.account_id === card.id)
-    const byMonth = new Map<
-      string,
-      {
-        charges: InvoiceCharge[]
-        paidCents: number
-        openCents: number
-      }
-    >()
-    for (const t of mine) {
-      if (t.is_transfer) continue
-      if (t.type === "income") continue
-      const key = t.occurred_on.slice(0, 7)
-      const bucket = byMonth.get(key) ?? {
-        charges: [],
+    const bankKey = bankKeyOf(card.name)
+    // Separa em 2 grupos: tx no cartão (charges itemizados) e
+    // lump-sums em OUTRAS contas cujo merchant contém "<banco> cartão".
+    const charges = allTxs.filter(
+      (t) =>
+        t.account_id === card.id &&
+        !t.is_transfer &&
+        t.type === "expense",
+    )
+    const lumpSums = allTxs.filter((t) => {
+      if (t.account_id === card.id) return false
+      if (t.is_transfer) return false
+      if (t.type !== "expense") return false
+      const m = normalize(t.merchant ?? "")
+      if (!m.includes("cartao")) return false
+      return !!bankKey && m.includes(bankKey)
+    })
+
+    type MonthBucket = {
+      lumpSumCents: number
+      itemized: InvoiceCharge[]
+      lumpSumEntries: InvoiceCharge[]
+      paidCents: number
+    }
+    const byMonth = new Map<string, MonthBucket>()
+    const ensure = (key: string): MonthBucket => {
+      const b = byMonth.get(key) ?? {
+        lumpSumCents: 0,
+        itemized: [],
+        lumpSumEntries: [],
         paidCents: 0,
-        openCents: 0,
       }
-      const accName = allAccountsById.get(t.account_id)?.name ?? "conta"
-      bucket.charges.push({
+      byMonth.set(key, b)
+      return b
+    }
+
+    for (const t of charges) {
+      const key = t.occurred_on.slice(0, 7)
+      const b = ensure(key)
+      b.itemized.push({
         id: t.id,
         amount_cents: Number(t.amount_cents),
         occurred_on: t.occurred_on,
         merchant: t.merchant,
         paid_at: t.paid_at,
-        isDetected: false,
-        accountName: accName,
+        isLumpSum: false,
+        accountName: allAccountsById.get(t.account_id)?.name ?? "cartão",
       })
-      if (t.paid_at) bucket.paidCents += Number(t.amount_cents)
-      else bucket.openCents += Number(t.amount_cents)
-      byMonth.set(key, bucket)
     }
+    for (const t of lumpSums) {
+      const key = t.occurred_on.slice(0, 7)
+      const b = ensure(key)
+      b.lumpSumCents += Number(t.amount_cents)
+      b.lumpSumEntries.push({
+        id: t.id,
+        amount_cents: Number(t.amount_cents),
+        occurred_on: t.occurred_on,
+        merchant: t.merchant,
+        paid_at: t.paid_at,
+        isLumpSum: true,
+        accountName: allAccountsById.get(t.account_id)?.name ?? "conta",
+      })
+      if (t.paid_at) b.paidCents += Number(t.amount_cents)
+    }
+
     const invoices = [...byMonth.entries()]
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
       .map(([key, v]) => {
         const [y, m] = key.split("-")
+        const itemizedCents = v.itemized.reduce(
+          (s, c) => s + c.amount_cents,
+          0,
+        )
+        // Total da fatura = valor maior entre lump-sum e soma itemizada.
+        // Lump-sum é o valor "oficial" que o user registrou; itemizados
+        // são a quebra. Se não tiver lump-sum, cai na soma dos charges.
+        const totalCents =
+          v.lumpSumCents > 0 ? Math.max(v.lumpSumCents, itemizedCents) : itemizedCents
+        const allLumpSumsPaid =
+          v.lumpSumCents > 0 && v.paidCents >= v.lumpSumCents
+        const openCents = allLumpSumsPaid ? 0 : totalCents - v.paidCents
         return {
           key,
           label: `${MONTH_NAMES_PT[Number(m) - 1]} ${y}`,
-          chargeCents: v.paidCents + v.openCents,
+          totalCents,
+          itemizedCents,
+          lumpSumCents: v.lumpSumCents,
           paidCents: v.paidCents,
-          openCents: v.openCents,
-          charges: v.charges.sort((a, b) =>
+          openCents,
+          itemized: v.itemized.sort((a, b) =>
             a.occurred_on < b.occurred_on ? 1 : -1,
           ),
+          lumpSumEntries: v.lumpSumEntries,
         }
       })
 
@@ -218,21 +270,33 @@ function InvoiceRow({
   invoice: {
     key: string
     label: string
-    chargeCents: number
+    totalCents: number
+    itemizedCents: number
+    lumpSumCents: number
     paidCents: number
     openCents: number
-    charges: {
+    itemized: {
       id: string
       amount_cents: number
       occurred_on: string
       merchant: string | null
       paid_at: string | null
-      isDetected: boolean
+      isLumpSum: boolean
+      accountName: string
+    }[]
+    lumpSumEntries: {
+      id: string
+      amount_cents: number
+      occurred_on: string
+      merchant: string | null
+      paid_at: string | null
+      isLumpSum: boolean
       accountName: string
     }[]
   }
 }) {
-  const allPaid = invoice.openCents === 0 && invoice.chargeCents > 0
+  const allEntries = [...invoice.lumpSumEntries, ...invoice.itemized]
+  const allPaid = invoice.openCents === 0 && invoice.totalCents > 0
   const partial = invoice.paidCents > 0 && invoice.openCents > 0
   const status = allPaid
     ? { label: "PAGA", className: "text-income" }
@@ -251,13 +315,15 @@ function InvoiceRow({
             Fatura {invoice.label}
           </p>
           <p className="text-xs text-muted">
-            {invoice.charges.length} lançamento
-            {invoice.charges.length === 1 ? "" : "s"} · Total{" "}
-            {formatBRL(invoice.chargeCents)}
-            {invoice.paidCents > 0 &&
-              ` · pago ${formatBRL(invoice.paidCents)}`}
-            {invoice.openCents > 0 &&
-              ` · em aberto ${formatBRL(invoice.openCents)}`}
+            Total{" "}
+            <span className="font-mono font-semibold text-strong">
+              {formatBRL(invoice.totalCents)}
+            </span>
+            {invoice.itemizedCents > 0 &&
+              ` · ${invoice.itemized.length} itemizado${invoice.itemized.length === 1 ? "" : "s"} ${formatBRL(invoice.itemizedCents)}`}
+            {invoice.lumpSumCents > 0 &&
+              ` · pagamento agendado ${formatBRL(invoice.lumpSumCents)}`}
+            {invoice.paidCents > 0 && ` · pago ${formatBRL(invoice.paidCents)}`}
           </p>
         </div>
         <p
@@ -267,13 +333,10 @@ function InvoiceRow({
         </p>
       </div>
 
-      {invoice.charges.length > 0 && (
+      {allEntries.length > 0 && (
         <ul className="divide-y divide-border rounded-lg border border-border text-xs">
-          {invoice.charges.map((t) => (
-            <li
-              key={t.id}
-              className="flex items-center gap-3 px-3 py-1.5"
-            >
+          {allEntries.map((t) => (
+            <li key={t.id} className="flex items-center gap-3 px-3 py-1.5">
               <Link
                 href={`/app/transacoes/${t.id}`}
                 className="flex min-w-0 flex-1 items-center gap-2 text-body hover:text-strong"
@@ -287,6 +350,11 @@ function InvoiceRow({
                 <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted">
                   · {t.accountName}
                 </span>
+                {t.isLumpSum && (
+                  <span className="shrink-0 rounded-full border border-border bg-subtle px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-body">
+                    fatura
+                  </span>
+                )}
                 {t.paid_at ? (
                   <span className="shrink-0 rounded-full border border-income/40 bg-income/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-income">
                     paga
