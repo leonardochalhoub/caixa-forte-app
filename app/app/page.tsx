@@ -327,16 +327,16 @@ export default async function DashboardPage() {
   // Credit card balance = running debt (negative when you owe). Subtracted
   // from the "liquid + savings + investments" net worth.
   const creditCents = creditAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  // Saldo = dinheiro disponível + investimentos − dívida cheia do
-  // cartão (fatura total com itemizados + lump-sum). FGTS fica
-  // de fora (bloqueado). Pendentes reduzem, dinheiro já gasto sem
-  // conta atribuída.
+  // Saldo = dinheiro que você TEM nas contas agora (líquido + savings
+  // + investimentos + cripto) − pendentes não alocados. FGTS fora
+  // (bloqueado). Dívida de cartão NÃO é descontada — o dinheiro ainda
+  // está na sua conta; só sai quando você paga a fatura. Isso faz o
+  // saldo descer naturalmente na data do pagamento, igual à vida real.
   const totalBalanceCents =
     liquidCents +
     savingsCents +
     investmentCents +
     cryptoCents +
-    creditCents +
     pendingNetCents
 
   const creditIdsForFilter = new Set(

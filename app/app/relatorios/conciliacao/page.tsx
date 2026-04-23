@@ -287,6 +287,13 @@ export default async function ConciliacaoPage({
       return latestActivityKey(b).localeCompare(latestActivityKey(a))
     })
   const fgts = rows.filter((r) => r.account.type === "fgts")
+  // Para os totais (Saldo total agora), excluímos contas de cartão —
+  // a dívida do cartão NÃO reduz o saldo das contas, só sai quando
+  // a fatura é paga (via tx real na conta corrente). Mesma regra do
+  // hero na home. Cartão aparece separadamente como informativo.
+  const nonFgtsNonCredit = nonFgts.filter(
+    (r) => r.account.type !== "credit",
+  )
 
   // Pendentes no período (sem conta atribuída) entram como bloco
   // separado — afetam o saldo projetado mas não pertencem a nenhuma
@@ -307,12 +314,12 @@ export default async function ConciliacaoPage({
     arr.reduce((s, r) => s + (r[field] as number), 0)
 
   const accountsTotal = {
-    startBalance: sum(nonFgts, "startBalance"),
-    incomeCents: sum(nonFgts, "incomeCents"),
-    expenseCents: sum(nonFgts, "expenseCents"),
-    transferInCents: sum(nonFgts, "transferInCents"),
-    transferOutCents: sum(nonFgts, "transferOutCents"),
-    endBalance: sum(nonFgts, "endBalance"),
+    startBalance: sum(nonFgtsNonCredit, "startBalance"),
+    incomeCents: sum(nonFgtsNonCredit, "incomeCents"),
+    expenseCents: sum(nonFgtsNonCredit, "expenseCents"),
+    transferInCents: sum(nonFgtsNonCredit, "transferInCents"),
+    transferOutCents: sum(nonFgtsNonCredit, "transferOutCents"),
+    endBalance: sum(nonFgtsNonCredit, "endBalance"),
   }
 
   // Saldo projetado = saldo das contas + impacto das pendentes.
@@ -703,11 +710,13 @@ export default async function ConciliacaoPage({
             </span>
           </span>
           {cardFatureCents > 0 && (
-            <span className="inline-flex items-center gap-1 text-expense">
-              <ArrowDown className="h-3.5 w-3.5" />
-              fatura cartão
-              <span className="font-mono font-semibold">
+            <span className="inline-flex items-center gap-1 text-muted">
+              <span className="text-[10px]">cartão em aberto</span>
+              <span className="font-mono">
                 {formatBRL(cardFatureCents)}
+              </span>
+              <span className="text-[10px] italic">
+                (sai do saldo quando pagar)
               </span>
             </span>
           )}
