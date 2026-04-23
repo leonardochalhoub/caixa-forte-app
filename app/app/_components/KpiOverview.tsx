@@ -305,9 +305,7 @@ function HeroBalance({
             dashed
             sortByDebt
             footnote={
-              creditCents < 0
-                ? "dívida aberta — não entra no saldo total"
-                : "não entra no saldo total"
+              creditCents < 0 ? "dívida aberta — descontada do saldo total" : undefined
             }
           />
           <BreakdownPanel
