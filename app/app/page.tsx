@@ -141,9 +141,6 @@ export default async function DashboardPage() {
     [
       ...monthTxTyped
         .filter((t) => !creditAccountIdSet.has(t.account_id))
-        // KPIs refletem DINHEIRO QUE MEXEU de fato — agendadas
-        // (paid_at=null) ainda não impactam Entrada/Saída/Perda do mês.
-        .filter((t) => t.paid_at != null)
         .map((t) => ({
           occurred_on: t.occurred_on,
           type: t.type as "income" | "expense",
