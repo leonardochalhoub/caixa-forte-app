@@ -549,7 +549,7 @@ export default async function BalancoPage({
     [],
     ["ATIVO"],
     ["  Ativo Circulante"],
-    ["    Disponibilidades", ativoCirculanteDisponivel?.total ?? 0 / 100],
+    ["    Disponibilidades", (ativoCirculanteDisponivel?.total ?? 0) / 100],
     ...(ativoCirculanteDisponivel?.lines.map((l) => [
       `      ${l.accountName}`,
       l.cents / 100,
