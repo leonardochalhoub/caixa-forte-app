@@ -544,52 +544,140 @@ export default async function BalancoPage({
     .sort((a, b) => b - a)
     .map((y) => ({ value: `anual:${y}`, label: `Ano ${y}` }))
 
-  const xlsxRows: (string | number)[][] = [
-    ["Balanço Contábil", period.label, "", "Snapshot", snapshotDate],
-    [],
-    ["ATIVO"],
-    ["  Ativo Circulante"],
-    ["    Disponibilidades", (ativoCirculanteDisponivel?.total ?? 0) / 100],
-    ...(ativoCirculanteDisponivel?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["  Ativo Não Circulante"],
-    ["    Renda Fixa", (ativoCirculanteRendaFixa?.total ?? 0) / 100],
-    ...(ativoCirculanteRendaFixa?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["    Renda Variável", (ativoCirculanteRendaVar?.total ?? 0) / 100],
-    ...(ativoCirculanteRendaVar?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["    Cripto", (ativoCirculanteCripto?.total ?? 0) / 100],
-    ...(ativoCirculanteCripto?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["    Bloqueado (FGTS)", (ativoNCBloqueado?.total ?? 0) / 100],
-    ...(ativoNCBloqueado?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["TOTAL DO ATIVO", ativoTotal / 100],
-    [],
-    ["PASSIVO"],
-    ["  Passivo Circulante"],
-    ["    Cartões de Crédito", (passivoCartoes?.total ?? 0) / 100],
-    ...(passivoCartoes?.lines.map((l) => [
-      `      ${l.accountName}`,
-      l.cents / 100,
-    ]) ?? []),
-    ["TOTAL DO PASSIVO", passivoTotal / 100],
-    [],
-    ["PATRIMÔNIO LÍQUIDO", patrimonioLiquido / 100],
-    [],
-    ["TOTAL PASSIVO + PL", (passivoTotal + patrimonioLiquido) / 100],
-  ]
+  const xlsxRows: (string | number)[][] = []
+  const pushLine = (label: string, value: number) =>
+    xlsxRows.push([label, value / 100])
+  const pushHeader = (label: string) => xlsxRows.push([label])
+  const pushGap = () => xlsxRows.push([])
+  const pushBucketLines = (bucket?: { lines: { accountName: string; cents: number }[] }) => {
+    for (const l of bucket?.lines ?? []) pushLine(`      ↳ ${l.accountName}`, l.cents)
+  }
+  const pushAdjLines = (section: string) => {
+    for (const a of adjustmentsBySection.get(section) ?? [])
+      pushLine(`      ↳ ${a.label}`, a.amount_cents)
+  }
+  const pushSubsection = (
+    title: string,
+    total: number,
+    bucket: { lines: { accountName: string; cents: number }[] } | undefined,
+    adjSections: string[],
+    show = true,
+  ) => {
+    if (!show) return
+    pushLine(`    ${title}`, total)
+    pushBucketLines(bucket)
+    for (const s of adjSections) pushAdjLines(s)
+  }
+
+  xlsxRows.push(["Balanço Contábil", period.label, "", "Snapshot", snapshotDate])
+  pushGap()
+
+  // ATIVO
+  pushHeader("ATIVO")
+  pushHeader("  Ativo Circulante")
+  pushSubsection(
+    "Disponibilidades",
+    ativoCirculanteDisponivelTotal,
+    ativoCirculanteDisponivel,
+    ["ativo_circulante_disponivel", "ativo_circulante_outros"],
+  )
+  pushSubsection(
+    "Aplicações de Renda Fixa",
+    ativoCirculanteRendaFixaTotal,
+    ativoCirculanteRendaFixa,
+    ["ativo_circulante_renda_fixa"],
+  )
+  pushSubsection(
+    "Renda Variável",
+    ativoCirculanteRendaVarTotal,
+    ativoCirculanteRendaVar,
+    ["ativo_circulante_renda_variavel"],
+  )
+  pushSubsection(
+    "Cripto",
+    ativoCirculanteCriptoTotal,
+    ativoCirculanteCripto,
+    ["ativo_circulante_cripto"],
+  )
+
+  pushHeader("  Ativo Não Circulante")
+  pushSubsection(
+    "Recursos Bloqueados",
+    ativoNCBloqueadoTotal,
+    ativoNCBloqueado,
+    ["ativo_nc_bloqueado"],
+    ativoNCBloqueadoTotal > 0,
+  )
+  pushSubsection(
+    "Imobilizado",
+    ativoNCImobilizadoTotal,
+    undefined,
+    ["ativo_nc_imobilizado"],
+  )
+  pushSubsection(
+    "Intangível",
+    ativoNCIntangivelTotal,
+    undefined,
+    ["ativo_nc_intangivel"],
+    ativoNCIntangivelTotal !== 0 ||
+      (adjustmentsBySection.get("ativo_nc_intangivel") ?? []).length > 0,
+  )
+  pushLine("TOTAL DO ATIVO", ativoTotal)
+  pushGap()
+
+  // PASSIVO
+  pushHeader("PASSIVO")
+  pushHeader("  Passivo Circulante")
+  pushSubsection(
+    "Cartões de Crédito",
+    passivoCartoes?.total ?? 0,
+    passivoCartoes,
+    ["passivo_circulante_cartoes"],
+  )
+  if (overdueLiabilities.length > 0) {
+    pushLine("    Agendadas vencidas", overdueLiabilitiesTotal)
+    for (const l of [...overdueLiabilities].sort((a, b) => b.cents - a.cents)) {
+      pushLine(
+        `      ↳ ${l.label} · venc. ${l.dueDate.split("-").reverse().join("/")}`,
+        l.cents,
+      )
+    }
+  }
+  if ((adjustmentsBySection.get("passivo_circulante_outros") ?? []).length > 0) {
+    pushLine("    Outros", sumAdj("passivo_circulante_outros"))
+    pushAdjLines("passivo_circulante_outros")
+  }
+
+  if (
+    passivoNCTotal !== 0 ||
+    (adjustmentsBySection.get("passivo_nc_financiamentos") ?? []).length > 0
+  ) {
+    pushHeader("  Passivo Não Circulante")
+    pushLine("    Financiamentos", passivoNCTotal)
+    pushAdjLines("passivo_nc_financiamentos")
+  }
+  pushLine("TOTAL DO PASSIVO", passivoTotal)
+  pushGap()
+
+  pushLine("PATRIMÔNIO LÍQUIDO", patrimonioLiquido)
+  pushGap()
+  pushLine("TOTAL PASSIVO + PL", passivoTotal + patrimonioLiquido)
+
+  if (registries.length > 0) {
+    pushGap()
+    pushHeader("HISTÓRICO DE REGISTROS DO PERÍODO")
+    xlsxRows.push(["Tipo", "Descrição", "Débito", "Crédito", "Valor", "Obs."])
+    for (const r of registries) {
+      xlsxRows.push([
+        r.kind.replace(/_/g, " "),
+        r.description,
+        r.debit_label,
+        r.credit_label,
+        r.amount_cents / 100,
+        r.note ?? "",
+      ])
+    }
+  }
 
   return (
     <article className="report-root space-y-8">
