@@ -882,41 +882,44 @@ function AdjList({
   hint?: string
 }) {
   if (items.length === 0) return null
+  // Estrutura idêntica ao Bucket (ul com pl-7), pra manter alinhamento
+  // vertical das contas e dos ajustes. Actions de editar/remover
+  // ficam num slot absoluto ao lado, sem empurrar o valor.
   return (
-    <div className="space-y-1 pl-4 text-xs">
+    <>
       {hint && (
-        <p className="text-[10px] uppercase tracking-wider text-muted">{hint}</p>
+        <p className="pl-7 text-[10px] uppercase tracking-wider text-muted">
+          {hint}
+        </p>
       )}
-      <ul className="space-y-0.5 pl-3">
+      <ul className="space-y-0.5 pl-7">
         {items.map((a) => (
           <li
             key={a.id}
-            className="group flex items-baseline justify-between gap-2 text-[11px] text-body"
+            className="group relative flex items-baseline justify-between gap-3 text-[11px] text-muted"
           >
-            <span className="flex items-baseline gap-1">
-              <span className="text-muted">↳</span>
-              {a.label}
+            <span className="flex min-w-0 flex-1 items-baseline gap-1">
+              <span>↳</span>
+              <span className="truncate">{a.label}</span>
               {a.note && (
                 <span
-                  className="cursor-help text-[9px] text-muted"
+                  className="shrink-0 cursor-help text-[9px]"
                   title={a.note}
                 >
                   ⓘ
                 </span>
               )}
             </span>
-            <span className="flex items-center gap-2">
-              <span className="font-mono tabular-nums">
-                {formatBRL(a.amount_cents)}
-              </span>
-              <span className="no-print opacity-0 transition-opacity group-hover:opacity-100">
-                <AdjustmentActions adjustment={a} />
-              </span>
+            <span className="shrink-0 font-mono tabular-nums">
+              {formatBRL(a.amount_cents)}
+            </span>
+            <span className="no-print absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-1 opacity-0 transition-opacity group-hover:opacity-100">
+              <AdjustmentActions adjustment={a} />
             </span>
           </li>
         ))}
       </ul>
-    </div>
+    </>
   )
 }
 
@@ -942,10 +945,12 @@ function Bucket({
         .map((l) => (
           <li
             key={l.accountId}
-            className="flex items-baseline justify-between text-[11px] text-muted"
+            className="flex items-baseline justify-between gap-3 text-[11px] text-muted"
           >
-            <span>↳ {l.accountName}</span>
-            <span className="font-mono tabular-nums">
+            <span className="min-w-0 flex-1 truncate">
+              ↳ {l.accountName}
+            </span>
+            <span className="shrink-0 font-mono tabular-nums">
               {formatBRL(l.cents)}
             </span>
           </li>

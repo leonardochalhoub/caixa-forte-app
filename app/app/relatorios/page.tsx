@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowRight, CheckSquare, FileText, Scale, TrendingUp, Tags } from "lucide-react"
+import { ArrowRight, CheckSquare, FileBarChart, FileText, Scale, TrendingUp, Tags } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 
 export const dynamic = "force-dynamic"
