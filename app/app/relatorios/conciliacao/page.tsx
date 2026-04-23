@@ -98,13 +98,14 @@ export default async function ConciliacaoPage({
       .eq("user_id", user.id)
       .is("archived_at", null)
       .order("sort_order"),
+    // Fetch TODAS as tx (paid e unpaid). Filtro por account type acontece
+    // depois: não-cartão só conta paid; cartão conta tudo (debt).
     untyped(supabase)
       .from("transactions")
       .select(
         "id, account_id, type, amount_cents, occurred_on, paid_at, created_at, merchant, is_transfer, category_id",
       )
       .eq("user_id", user.id)
-      .not("paid_at", "is", null)
       .order("occurred_on", { ascending: true })
       .order("created_at", { ascending: true }),
     supabase
@@ -121,9 +122,17 @@ export default async function ConciliacaoPage({
   ])
 
   const accs = (accounts ?? []) as AccountRow[]
-  const allTx = ((allTxRaw ?? []) as Tx[]).filter((t) =>
-    // A conta pode ter sido arquivada; não queremos transações órfãs no relatório.
+  const creditAccountIds = new Set(
+    accs.filter((a) => a.type === "credit").map((a) => a.id),
+  )
+  const rawTxs = ((allTxRaw ?? []) as Tx[]).filter((t) =>
     accs.some((a) => a.id === t.account_id),
+  )
+  // Regra: não-cartão só conta tx com paid_at setado (dinheiro que
+  // realmente mexeu no saldo). Cartão conta tudo, charges são dívida
+  // desde o swipe — saldo de cartão já inclui pending.
+  const allTx = rawTxs.filter(
+    (t) => creditAccountIds.has(t.account_id) || t.paid_at != null,
   )
 
   const pendingCaptures: PendingParsed[] = (pendingRaw ?? [])
@@ -179,8 +188,34 @@ export default async function ConciliacaoPage({
     return t.occurred_on < periodStart!
   }
 
+  const normalizeStr = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const bankKeyOf = (cardName: string): string => {
+    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
+    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
+  }
+
+  // Detecta lump-sums de fatura de cartão em OUTRAS contas (merchant
+  // "<banco> cartão" agendado). Esses entram no detalhamento do
+  // cartão como "fatura a pagar" pra refletir a dívida real.
+  function detectLumpSumsForCard(card: AccountRow): Tx[] {
+    if (card.type !== "credit") return []
+    const key = bankKeyOf(card.name)
+    if (!key) return []
+    return rawTxs.filter((t) => {
+      if (t.account_id === card.id) return false
+      if (t.is_transfer) return false
+      if (t.type !== "expense") return false
+      if (t.paid_at) return false // já pago
+      const m = normalizeStr(t.merchant ?? "")
+      return m.includes("cartao") && m.includes(key)
+    })
+  }
+
   const rows = accs.map((a) => {
-    const mine = allTx.filter((t) => t.account_id === a.id)
+    const own = allTx.filter((t) => t.account_id === a.id)
+    const detectedLumpSums = detectLumpSumsForCard(a)
+    const mine = [...own, ...detectedLumpSums]
     const opening = Number(a.opening_balance_cents ?? 0)
     const before = mine.filter(beforePeriod)
     const within = mine.filter(inPeriod)
