@@ -274,20 +274,73 @@ export default async function DashboardPage() {
     cryptoCents +
     pendingNetCents
 
-  // Dashboard esconde charges de cartão (tx em conta type=credit). O
-  // lump-sum de fatura (que vive na conta corrente como agendada)
-  // continua aparecendo em Agendadas — é dinheiro real que vai sair
-  // da conta. Últimas transações e Agendadas não se sobrepõem porque
-  // uma mostra pagas e a outra não-pagas.
   const creditIdsForFilter = new Set(
     (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
   )
+
+  // Pra lump-sums de fatura ("<banco> cartão <mês>") em contas
+  // correntes, o valor exibido em Agendadas e Últimas transações é o
+  // TOTAL da fatura = lump-sum + charges itemizados no cartão do mesmo
+  // banco/mês. Sem isso o user vê R$ 6.415,25 em vez de R$ 7.196,69.
+  const normalizeMerchant = (s: string) =>
+    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  const bankKeyOfCard = (cardName: string): string => {
+    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
+    return normalizeMerchant(cleaned.split(/\s+/)[0] ?? "")
+  }
+  const cardsByBankKey = new Map<string, string>() // bankKey -> card.id
+  for (const a of accounts ?? []) {
+    if (a.type !== "credit") continue
+    const k = bankKeyOfCard(a.name)
+    if (k) cardsByBankKey.set(k, a.id)
+  }
+  // Calcula itemizados por cartão+mês a partir do flowRealized
+  const itemizedByCardMonth = new Map<string, number>() // `${cardId}-${yyyy-mm}` -> cents
+  for (const t of flowRealized ?? []) {
+    if (t.is_transfer) continue
+    if (!creditIdsForFilter.has(t.account_id)) continue
+    if (t.type !== "expense") continue
+    // occurred_on não está em flowRealized mas podemos usar paid_at como fallback
+    // Mais simples: buscar de monthTx que tem occurred_on
+  }
+  // Fallback: usa monthTx (que tem occurred_on) pra construir o map
+  for (const t of monthTx ?? []) {
+    if (t.is_transfer) continue
+    if (!creditIdsForFilter.has(t.account_id)) continue
+    if (t.type !== "expense") continue
+    const key = `${t.account_id}-${t.occurred_on.slice(0, 7)}`
+    itemizedByCardMonth.set(
+      key,
+      (itemizedByCardMonth.get(key) ?? 0) + Number(t.amount_cents),
+    )
+  }
+
+  function effectiveAmountCents(t: {
+    amount_cents: number | string
+    merchant: string | null
+    occurred_on: string
+  }): number {
+    const base = Number(t.amount_cents)
+    const m = normalizeMerchant(t.merchant ?? "")
+    if (!m.includes("cartao")) return base
+    for (const [bankKey, cardId] of cardsByBankKey) {
+      if (!m.includes(bankKey)) continue
+      const addon =
+        itemizedByCardMonth.get(`${cardId}-${t.occurred_on.slice(0, 7)}`) ?? 0
+      return base + addon
+    }
+    return base
+  }
+
   const filteredUpcoming = (upcomingTx ?? [])
     .filter((t) => !creditIdsForFilter.has(t.account_id))
     .slice(0, 5)
   const upcomingNet = filteredUpcoming.reduce(
     (sum, t) =>
-      sum + (t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)),
+      sum +
+      (t.type === "income"
+        ? effectiveAmountCents(t)
+        : -effectiveAmountCents(t)),
     0,
   )
 
@@ -471,7 +524,7 @@ export default async function DashboardPage() {
                           isIncome ? "text-income" : "text-expense"
                         }`}
                       >
-                        {isIncome ? "+" : "−"} {formatBRL(Number(t.amount_cents))}
+                        {isIncome ? "+" : "−"} {formatBRL(effectiveAmountCents(t))}
                       </p>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
                     </Link>
@@ -511,7 +564,7 @@ export default async function DashboardPage() {
             }) => ({
               id: t.id,
               type: t.type as "income" | "expense",
-              amount_cents: Number(t.amount_cents),
+              amount_cents: effectiveAmountCents(t),
               occurred_on: t.occurred_on,
               merchant: t.merchant,
               note: t.note,
