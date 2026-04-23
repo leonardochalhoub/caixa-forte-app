@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js"
 import { getUser, isAdminish } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 300
+export const maxDuration = 120
 
 const DEMO_EMAIL = "larissa.demo@caixa-forte.app"
 const DEMO_PASSWORD = "DemoPublico#2026"
@@ -14,50 +14,288 @@ type SeedLog = { step: string; detail: string; ok: boolean }
 
 type RangeKey = "full" | "2025" | "2026" | "q1-2026" | "last-12m"
 
-function chunksForRange(range: RangeKey): [string, string][] {
-  const pair = (a: string, b: string): [string, string] => [a, b]
+// ------ SEED DATA GENERATORS (sem IA externa — determinístico) ------
+
+// Meses presentes no range selecionado. Cada mês expande pra ~18-22 tx.
+function monthsForRange(range: RangeKey): string[] {
+  const months: string[] = []
+  const push = (y: number, m: number) =>
+    months.push(`${y}-${String(m).padStart(2, "0")}`)
   switch (range) {
     case "2025":
-      return [
-        pair("2025-01", "2025-02"),
-        pair("2025-03", "2025-04"),
-        pair("2025-05", "2025-06"),
-        pair("2025-07", "2025-08"),
-        pair("2025-09", "2025-10"),
-        pair("2025-11", "2025-12"),
-      ]
+      for (let m = 1; m <= 12; m++) push(2025, m)
+      return months
     case "2026":
-      return [pair("2026-01", "2026-02"), pair("2026-03", "2026-04")]
+      for (let m = 1; m <= 12; m++) push(2026, m)
+      return months
     case "q1-2026":
-      return [pair("2026-01", "2026-02"), pair("2026-03", "2026-03")]
+      for (let m = 1; m <= 3; m++) push(2026, m)
+      return months
     case "last-12m": {
       const now = new Date()
-      const months: string[] = []
       for (let i = 11; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-        months.push(
-          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-        )
+        push(d.getFullYear(), d.getMonth() + 1)
       }
-      const out: [string, string][] = []
-      for (let i = 0; i < months.length; i += 2) {
-        out.push(pair(months[i]!, months[i + 1] ?? months[i]!))
-      }
-      return out
+      return months
     }
     case "full":
     default:
-      return [
-        pair("2025-01", "2025-02"),
-        pair("2025-03", "2025-04"),
-        pair("2025-05", "2025-06"),
-        pair("2025-07", "2025-08"),
-        pair("2025-09", "2025-10"),
-        pair("2025-11", "2025-12"),
-        pair("2026-01", "2026-02"),
-        pair("2026-03", "2026-04"),
-      ]
+      // Completo = 2025 inteiro + 2026 inteiro (24 meses). Meses futuros
+      // ficam com tx agendadas (paid_at=null).
+      for (let m = 1; m <= 12; m++) push(2025, m)
+      for (let m = 1; m <= 12; m++) push(2026, m)
+      return months
   }
+}
+
+// Pseudo-random determinístico (mulberry32) — mesmas "aleatoriedades"
+// toda vez que roda, seed reproduzível.
+function rng(seed: number) {
+  let s = seed
+  return () => {
+    s |= 0
+    s = (s + 0x6d2b79f5) | 0
+    let t = Math.imul(s ^ (s >>> 15), 1 | s)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+const r = rng(42)
+const pick = <T>(arr: T[]) => arr[Math.floor(r() * arr.length)]!
+const between = (min: number, max: number) =>
+  Math.round(min + r() * (max - min))
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0")
+}
+function isoDate(y: number, m: number, d: number) {
+  return `${y}-${pad2(m)}-${pad2(d)}`
+}
+function isoTs(y: number, m: number, d: number, hour = 12) {
+  return `${y}-${pad2(m)}-${pad2(d)}T${pad2(hour)}:00:00Z`
+}
+function daysInMonth(y: number, m: number) {
+  return new Date(y, m, 0).getDate()
+}
+
+type Account = { id: string; name: string; type: string }
+type Category = { id: string; name: string }
+
+type TxPayload = {
+  user_id: string
+  account_id: string
+  category_id: string | null
+  type: "income" | "expense"
+  amount_cents: number
+  occurred_on: string
+  paid_at: string | null
+  merchant: string
+  is_transfer: boolean
+  source: string
+}
+
+function buildMonthTxs(
+  userId: string,
+  ym: string,
+  accs: Record<string, Account>,
+  cats: Record<string, Category>,
+  today: Date,
+): TxPayload[] {
+  const [yStr, mStr] = ym.split("-")
+  const y = Number(yStr)
+  const m = Number(mStr)
+  const isFuture = (d: number) => new Date(y, m - 1, d) > today
+  const isCurrentMonth =
+    y === today.getFullYear() && m === today.getMonth() + 1
+  // Mês passado: 95% pago. Mês corrente: 70% pago. Futuro: tudo agendado.
+  const paidChance = isFuture(1) ? 0 : isCurrentMonth ? 0.7 : 0.95
+
+  const txs: TxPayload[] = []
+  const add = (
+    accountName: string,
+    catName: string | null,
+    type: "income" | "expense",
+    amountCents: number,
+    day: number,
+    merchant: string,
+  ) => {
+    const safeDay = Math.min(day, daysInMonth(y, m))
+    const dateStr = isoDate(y, m, safeDay)
+    const future = isFuture(safeDay)
+    const paid = !future && r() < paidChance
+    const acc = accs[accountName]
+    if (!acc) return
+    const cat = catName ? cats[catName] : null
+    txs.push({
+      user_id: userId,
+      account_id: acc.id,
+      category_id: cat?.id ?? null,
+      type,
+      amount_cents: amountCents,
+      occurred_on: dateStr,
+      paid_at: paid ? isoTs(y, m, safeDay, between(8, 20)) : null,
+      merchant,
+      is_transfer: false,
+      source: "web",
+    })
+  }
+
+  // Salário — dia 5, R$ 7.900-8.700
+  add(
+    "Nubank Conta",
+    "Salário",
+    "income",
+    between(790000, 870000),
+    5,
+    pick(["Salário TechCorp", "Salário TechCorp SA", "Pgto TechCorp"]),
+  )
+  // Freelance a cada 3 meses (m 3/6/9/12) R$ 800-2000
+  if (m % 3 === 0) {
+    add(
+      "Nubank Conta",
+      "Freelance",
+      "income",
+      between(80000, 200000),
+      between(12, 22),
+      pick([
+        "Freelance design",
+        "Projeto X pagamento",
+        "Consultoria marketing",
+      ]),
+    )
+  }
+  // Rendimentos (capital, non-formal) pequeno R$ 45-85 em investment
+  add(
+    "Nubank Renda Fixa",
+    "Rendimentos",
+    "income",
+    between(4500, 8500),
+    between(1, 3),
+    "Rendimentos Renda Fixa",
+  )
+
+  // Aluguel — dia 10, R$ 2.200
+  add("Nubank Conta", "Moradia", "expense", 220000, 10, "Aluguel apto SP")
+  // Condomínio — dia 12, R$ 480
+  add("Nubank Conta", "Moradia", "expense", 48000, 12, "Condomínio")
+  // Luz/Internet alternando
+  add(
+    "Nubank Conta",
+    "Moradia",
+    "expense",
+    between(12000, 22000),
+    between(14, 18),
+    pick(["Enel Luz", "Vivo Fibra"]),
+  )
+
+  // Mercado 3-4x
+  const mercadoCount = between(3, 4)
+  for (let i = 0; i < mercadoCount; i++) {
+    add(
+      "Nubank Conta",
+      "Mercado",
+      "expense",
+      between(8000, 28000),
+      between(3, 28),
+      pick([
+        "Mercado Pão de Açúcar",
+        "Carrefour Express",
+        "iFood Mercado",
+        "Shopee Supermercado",
+        "Extra Supermercado",
+      ]),
+    )
+  }
+
+  // Uber/99 3-5x
+  const rideCount = between(3, 5)
+  for (let i = 0; i < rideCount; i++) {
+    add(
+      "Nubank Conta",
+      "Transporte",
+      "expense",
+      between(1800, 5500),
+      between(2, 28),
+      pick(["Uber", "99 Táxi", "Uber Trip"]),
+    )
+  }
+
+  // iFood 2-3x
+  const foodCount = between(2, 3)
+  for (let i = 0; i < foodCount; i++) {
+    add(
+      "Nubank Conta",
+      "Alimentação",
+      "expense",
+      between(3500, 11000),
+      between(4, 27),
+      pick(["iFood", "iFood Restaurante", "Rappi"]),
+    )
+  }
+
+  // Assinaturas
+  add("Nubank Conta", "Assinaturas", "expense", 5590, 8, "Netflix")
+  add("Nubank Conta", "Assinaturas", "expense", 2190, 15, "Spotify")
+  add("Nubank Conta", "Lazer", "expense", 12990, 20, "Smart Fit Academia")
+
+  // 1-2 compras no cartão (direto no Nubank Cartão)
+  const cardBuys = between(1, 2)
+  for (let i = 0; i < cardBuys; i++) {
+    add(
+      "Nubank Cartão",
+      "Cuidados Pessoais",
+      "expense",
+      between(5000, 28000),
+      between(2, 26),
+      pick([
+        "Amazon",
+        "Shopee",
+        "Zara",
+        "Mercado Livre",
+        "Amaro",
+        "Renner",
+      ]),
+    )
+  }
+
+  // Fatura Nubank Cartão — lump-sum na Nubank Conta, dia 25, unpaid
+  const cardInvoice = between(60000, 140000)
+  add(
+    "Nubank Conta",
+    "Assinaturas",
+    "expense",
+    cardInvoice,
+    25,
+    "Nubank Cartão",
+  )
+  // Remove o paid_at da última (fatura é sempre agendada)
+  const last = txs[txs.length - 1]!
+  last.paid_at = null
+
+  // Ocasional: saúde (1/3 dos meses), lazer (metade dos meses)
+  if (r() < 0.33) {
+    add(
+      "Nubank Conta",
+      "Saúde",
+      "expense",
+      between(8000, 22000),
+      between(6, 24),
+      pick(["Farmácia Pague Menos", "Consulta Dra Ana", "Drogasil"]),
+    )
+  }
+  if (r() < 0.5) {
+    add(
+      "Nubank Conta",
+      "Lazer",
+      "expense",
+      between(3500, 12000),
+      between(5, 26),
+      pick(["Cinema", "Bar do Zé", "Show Allianz Parque", "Livraria Cultura"]),
+    )
+  }
+
+  return txs
 }
 
 export async function POST(req: Request) {
@@ -85,14 +323,12 @@ export async function POST(req: Request) {
 
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL
     const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    const groqKey = process.env.GROQ_API_KEY
-    if (!url || !svcKey || !groqKey) {
+    if (!url || !svcKey) {
       return NextResponse.json(
         { ok: false, error: "Variáveis de ambiente ausentes." },
         { status: 503 },
       )
     }
-
     const sb = createClient(url, svcKey, { auth: { persistSession: false } })
 
     // --- AUTH USER ---
@@ -110,7 +346,7 @@ export async function POST(req: Request) {
           picture: DEMO_AVATAR_URL,
         },
       })
-      note("auth", `atualizou senha de ${userId}`)
+      note("auth", `atualizou ${userId}`)
     } else {
       const { data, error } = await sb.auth.admin.createUser({
         email: DEMO_EMAIL,
@@ -149,180 +385,107 @@ export async function POST(req: Request) {
     await sb.from("accounts").delete().eq("user_id", userId)
     note("wipe", "dados antigos removidos")
 
-    // --- GROQ ---
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-    // Groq free tier: 6000 TPM no 8b, ~30k TPM no 70b. Cada chunk
-    // consome ~4k tokens entrada + ~4k saída. Pausa entre calls
-    // pra não estourar. Retry com backoff em 429.
-    async function callGroq(
-      system: string,
-      userMsg: string,
-      model = "llama-3.3-70b-versatile",
-      retries = 0,
-    ): Promise<Record<string, unknown>> {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${groqKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: userMsg },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.7,
-          max_tokens: 3000,
-        }),
-      })
-      if (res.status === 429) {
-        // Primeiro 429 no 70b → tenta 8b uma vez
-        if (model === "llama-3.3-70b-versatile" && retries === 0) {
-          note("groq-429", "70b rate-limited → tentando 8b")
-          await sleep(3000)
-          return callGroq(system, userMsg, "llama-3.1-8b-instant", 0)
-        }
-        // Retry com backoff (parse Retry-After se houver)
-        if (retries < 3) {
-          const retryAfter = res.headers.get("retry-after")
-          const waitSec = retryAfter ? Number(retryAfter) : 20 * (retries + 1)
-          const waitMs = Math.min(60000, Math.max(15000, waitSec * 1000))
-          note("groq-429", `aguardando ${Math.round(waitMs / 1000)}s e retry ${retries + 1}/3`)
-          await sleep(waitMs)
-          return callGroq(system, userMsg, model, retries + 1)
-        }
-        throw new Error(
-          `Groq 429 persistente após 3 retries. Aguarde 1-2 min e tente de novo (ou use range menor).`,
-        )
-      }
-      if (!res.ok) {
-        throw new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 200)}`)
-      }
-      const j = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>
-      }
-      return JSON.parse(j.choices?.[0]?.message?.content ?? "{}")
-    }
-
     // --- ACCOUNTS ---
-    const accSys = `Gerador de contas bancárias pessoais brasileiras. Retorne JSON { "accounts": [...] }.
-Cada: { name, type, opening_balance_cents, sort_order, balance_classification }.
-Tipos: checking, savings, investment, crypto, fgts, credit.
-balance_classification: circulante (checking/savings/invest/crypto), nao_circulante (fgts), null (credit).
-Cartão tem opening_balance_cents=0 sempre.`
-    const accUser = `6 contas pra Larissa Oliveira, 28 anos, analista de marketing SP, renda ~R$ 8.500/mês, criadas em 01/2025:
-Nubank Conta (~R$1.200), Nubank Renda Fixa (~R$6.000), Nubank Cripto (~R$1.500), Caixa Poupança (~R$2.500), Caixa FGTS (~R$42.000), Nubank Cartão (0).`
-    const rawAccs = ((await callGroq(accSys, accUser)).accounts as unknown[]) ?? []
-    const accountsPayload = rawAccs.map((raw, i) => {
-      const a = raw as Record<string, unknown>
-      return {
-        user_id: userId,
-        name: String(a.name ?? `Conta ${i}`),
-        type: String(a.type ?? "checking"),
-        opening_balance_cents: Math.round(Number(a.opening_balance_cents ?? 0)),
-        sort_order: Number(a.sort_order ?? i),
-        balance_classification: (a.balance_classification as string | null) ?? null,
-      }
-    })
-    const { data: accs, error: accErr } = await sb
+    const accountSeed = [
+      {
+        name: "Nubank Conta",
+        type: "checking",
+        opening_balance_cents: 120000,
+        sort_order: 0,
+        balance_classification: "circulante",
+      },
+      {
+        name: "Nubank Renda Fixa",
+        type: "investment",
+        opening_balance_cents: 600000,
+        sort_order: 1,
+        balance_classification: "circulante",
+      },
+      {
+        name: "Nubank Cripto",
+        type: "crypto",
+        opening_balance_cents: 150000,
+        sort_order: 2,
+        balance_classification: "circulante",
+      },
+      {
+        name: "Caixa Poupança",
+        type: "savings",
+        opening_balance_cents: 250000,
+        sort_order: 3,
+        balance_classification: "circulante",
+      },
+      {
+        name: "Caixa FGTS",
+        type: "fgts",
+        opening_balance_cents: 4200000,
+        sort_order: 4,
+        balance_classification: "nao_circulante",
+      },
+      {
+        name: "Nubank Cartão",
+        type: "credit",
+        opening_balance_cents: 0,
+        sort_order: 5,
+        balance_classification: null,
+      },
+    ]
+    const { data: insertedAccs, error: accErr } = await sb
       .from("accounts")
-      .insert(accountsPayload)
+      .insert(accountSeed.map((a) => ({ ...a, user_id: userId })))
       .select("id, name, type")
     if (accErr) throw new Error(`accounts: ${accErr.message}`)
-    note("accounts", `${accs?.length ?? 0} inseridas`)
+    const accountsByName: Record<string, Account> = {}
+    for (const a of insertedAccs ?? []) {
+      accountsByName[a.name as string] = {
+        id: a.id as string,
+        name: a.name as string,
+        type: a.type as string,
+      }
+    }
+    note("accounts", `${insertedAccs?.length ?? 0} inseridas`)
 
     // --- CATEGORIES ---
-    // Schema: { name, icon (emoji ok), is_income: boolean, sort_order }
-    const catSys = `Gerador de categorias de finanças pessoais. JSON { "categories": [...] }.
-Cada: { name, icon, is_income, is_formal_income, sort_order }.
-icon = 1 emoji (string curta).
-is_income = true pra receitas, false pra despesas.
-is_formal_income = true pra rendas do trabalho (salário, freelance); false pra capital (rendimentos, dividendos) e pra TODAS as despesas.`
-    const catUser = `11 categorias pra jovem adulta brasileira:
-8 despesas (is_income=false, is_formal_income=false):
-Moradia, Alimentação, Transporte, Saúde, Lazer, Mercado, Assinaturas, Cuidados Pessoais.
-3 receitas:
-- Salário (is_income=true, is_formal_income=true)
-- Freelance (is_income=true, is_formal_income=true)
-- Rendimentos (is_income=true, is_formal_income=false — é capital)`
-    const rawCats = ((await callGroq(catSys, catUser)).categories as unknown[]) ?? []
-    const catsPayload = rawCats.map((raw, i) => {
-      const c = raw as Record<string, unknown>
-      return {
-        user_id: userId,
-        name: String(c.name ?? `Cat ${i}`),
-        icon: String((c.icon as string) ?? (c.emoji as string) ?? "💰"),
-        is_income: c.is_income === true,
-        is_formal_income: c.is_formal_income === true,
-        sort_order: Number(c.sort_order ?? i),
-      }
-    })
-    const { data: cats, error: catErr } = await sb
+    const categorySeed = [
+      { name: "Moradia", icon: "🏠", is_income: false, is_formal_income: false, sort_order: 0 },
+      { name: "Alimentação", icon: "🍽️", is_income: false, is_formal_income: false, sort_order: 1 },
+      { name: "Mercado", icon: "🛒", is_income: false, is_formal_income: false, sort_order: 2 },
+      { name: "Transporte", icon: "🚗", is_income: false, is_formal_income: false, sort_order: 3 },
+      { name: "Saúde", icon: "💊", is_income: false, is_formal_income: false, sort_order: 4 },
+      { name: "Lazer", icon: "🎬", is_income: false, is_formal_income: false, sort_order: 5 },
+      { name: "Assinaturas", icon: "📺", is_income: false, is_formal_income: false, sort_order: 6 },
+      { name: "Cuidados Pessoais", icon: "💅", is_income: false, is_formal_income: false, sort_order: 7 },
+      { name: "Salário", icon: "💼", is_income: true, is_formal_income: true, sort_order: 8 },
+      { name: "Freelance", icon: "💻", is_income: true, is_formal_income: true, sort_order: 9 },
+      { name: "Rendimentos", icon: "📈", is_income: true, is_formal_income: false, sort_order: 10 },
+    ]
+    const { data: insertedCats, error: catErr } = await sb
       .from("categories")
-      .insert(catsPayload)
-      .select("id, name, is_income")
+      .insert(categorySeed.map((c) => ({ ...c, user_id: userId })))
+      .select("id, name")
     if (catErr) throw new Error(`categories: ${catErr.message}`)
-    note("categories", `${cats?.length ?? 0} inseridas`)
-
-    // --- TRANSACTIONS (chunks de 2 meses) ---
-    const accountList = (accs ?? [])
-      .map((a) => `- ${a.name} (${a.type}, id: ${a.id})`)
-      .join("\n")
-    const catList = (cats ?? [])
-      .map((c) => `- ${c.name} (${c.is_income ? "income" : "expense"}, id: ${c.id})`)
-      .join("\n")
-    const chunks = chunksForRange(range)
-    note("range", `${range} → ${chunks.length} chunks`)
-    const txSys = `Gerador de transações realistas de finanças pessoais brasileiras.
-JSON { "transactions": [...] }. Cada tx:
-{ account_id, category_id (pode ser null), type, amount_cents, occurred_on, paid_at, merchant, is_transfer: false }
-amount_cents: centavos inteiro positivo. occurred_on: YYYY-MM-DD. paid_at: ISO timestamp ou null.
-Merchant realista pt-BR. Use APENAS os UUIDs reais fornecidos.`
-
-    const accIds = new Set((accs ?? []).map((a) => a.id))
-    const catIds = new Set((cats ?? []).map((c) => c.id))
-    const allTxs: Record<string, unknown>[] = []
-    for (let i = 0; i < chunks.length; i++) {
-      const [s, e] = chunks[i]!
-      const txUser = `Larissa Oliveira, analista marketing SP. 18-22 tx de ${s} a ${e}.
-Por mês: 1 salário (~R$ 7.500-9.000, dia 5, Nubank Conta), aluguel ~R$2.200 dia 10, 3-4 mercados (R$80-300), 3-5 Uber/99 (R$15-60), 2-3 iFood (R$30-120), Netflix R$55, Spotify R$22, academia R$130, 1 compra cartão (Amazon/Shopee/Zara direto no Nubank Cartão), ocasional freelance/saúde/lazer.
-Mês passado: 95% paid. Mês corrente (Abr/2026): 70% pagas, 30% agendadas futuras.
-Incluir 1 lump-sum MENSAL "Nubank Cartão" no Nubank Conta, unpaid, occurred_on dia 25 do mês, valor R$ 600-1400.
-CONTAS:
-${accountList}
-CATEGORIAS:
-${catList}`
-      const batch = ((await callGroq(txSys, txUser)).transactions as unknown[]) ?? []
-      allTxs.push(...(batch as Record<string, unknown>[]))
-      note("groq", `chunk ${s}..${e}: ${batch.length} tx`)
-      // Pacing: 10s entre chunks pra não estourar TPM do Groq.
-      if (i < chunks.length - 1) await sleep(10000)
+    const categoriesByName: Record<string, Category> = {}
+    for (const c of insertedCats ?? []) {
+      categoriesByName[c.name as string] = {
+        id: c.id as string,
+        name: c.name as string,
+      }
     }
-    const txPayload = allTxs
-      .filter((t) => {
-        const aid = t.account_id as string
-        return aid && accIds.has(aid) && typeof t.amount_cents === "number" && t.occurred_on
-      })
-      .map((t) => {
-        const cid = t.category_id as string | null
-        return {
-          user_id: userId,
-          account_id: t.account_id as string,
-          category_id: cid && catIds.has(cid) ? cid : null,
-          type: t.type === "income" ? "income" : "expense",
-          amount_cents: Math.abs(Math.round(Number(t.amount_cents))),
-          occurred_on: t.occurred_on as string,
-          paid_at: (t.paid_at as string | null) ?? null,
-          merchant: (t.merchant as string | null) ?? null,
-          is_transfer: false,
-          source: "web",
-        }
-      })
+    note("categories", `${insertedCats?.length ?? 0} inseridas`)
+
+    // --- TRANSACTIONS (geradas deterministicamente) ---
+    const today = new Date()
+    const months = monthsForRange(range)
+    note("range", `${range} → ${months.length} meses`)
+    const allTxs: TxPayload[] = []
+    for (const ym of months) {
+      allTxs.push(
+        ...buildMonthTxs(userId, ym, accountsByName, categoriesByName, today),
+      )
+    }
     let txInserted = 0
-    for (let i = 0; i < txPayload.length; i += 50) {
-      const batch = txPayload.slice(i, i + 50)
+    for (let i = 0; i < allTxs.length; i += 100) {
+      const batch = allTxs.slice(i, i + 100)
       const { error } = await sb.from("transactions").insert(batch)
       if (error) {
         note("tx-batch", `${i}: ${error.message}`, false)
@@ -330,9 +493,9 @@ ${catList}`
       }
       txInserted += batch.length
     }
-    note("transactions", `${txInserted}/${txPayload.length} inseridas`)
+    note("transactions", `${txInserted}/${allTxs.length} inseridas`)
 
-    // --- BALANCE ADJUSTMENTS (carro + financiamento) ---
+    // --- BALANCE ADJUSTMENTS (carro FIPE + financiamento) — só no mês corrente ---
     const adjs = [
       {
         user_id: userId,
@@ -389,33 +552,33 @@ ${catList}`
         note: "Parcela mensal",
       },
     ]
-    for (const r of registriesSpec) {
+    for (const rec of registriesSpec) {
       const { data: reg } = await sb
         .from("balance_registries")
-        .insert({ user_id: userId, ...r })
+        .insert({ user_id: userId, ...rec })
         .select("id")
         .single()
       if (!reg) continue
-      const debitSign = r.debit_section.startsWith("passivo") ? -1 : 1
-      const creditSign = r.credit_section.startsWith("passivo") ? 1 : -1
+      const debitSign = rec.debit_section.startsWith("passivo") ? -1 : 1
+      const creditSign = rec.credit_section.startsWith("passivo") ? 1 : -1
       await sb.from("balance_adjustments").insert([
         {
           user_id: userId,
-          period: r.period,
-          line_key: `${r.debit_section}::registry:${reg.id}:debit`,
-          label: r.debit_label,
-          amount_cents: r.amount_cents * debitSign,
-          note: r.description,
-          metadata: { registry_id: reg.id, role: "debit", kind: r.kind },
+          period: rec.period,
+          line_key: `${rec.debit_section}::registry:${reg.id}:debit`,
+          label: rec.debit_label,
+          amount_cents: rec.amount_cents * debitSign,
+          note: rec.description,
+          metadata: { registry_id: reg.id, role: "debit", kind: rec.kind },
         },
         {
           user_id: userId,
-          period: r.period,
-          line_key: `${r.credit_section}::registry:${reg.id}:credit`,
-          label: r.credit_label,
-          amount_cents: r.amount_cents * creditSign,
-          note: r.description,
-          metadata: { registry_id: reg.id, role: "credit", kind: r.kind },
+          period: rec.period,
+          line_key: `${rec.credit_section}::registry:${reg.id}:credit`,
+          label: rec.credit_label,
+          amount_cents: rec.amount_cents * creditSign,
+          note: rec.description,
+          metadata: { registry_id: reg.id, role: "credit", kind: rec.kind },
         },
       ])
     }

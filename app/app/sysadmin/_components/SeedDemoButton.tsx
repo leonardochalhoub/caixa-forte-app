@@ -20,28 +20,28 @@ type RangeKey = "full" | "2025" | "2026" | "q1-2026" | "last-12m"
 const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; hint: string }> = [
   {
     key: "full",
-    label: "Completo (Jan/2025 → hoje)",
-    hint: "~16 meses · 8 chunks · ~2 min",
+    label: "Completo (2025 + 2026)",
+    hint: "24 meses · agendadas no futuro · instantâneo (sem IA)",
   },
   {
     key: "2025",
     label: "Ano 2025 inteiro",
-    hint: "12 meses · 6 chunks · ~90s",
+    hint: "12 meses · instantâneo",
   },
   {
     key: "2026",
-    label: "Ano 2026 (Jan → Abr)",
-    hint: "4 meses · 2 chunks · ~45s",
+    label: "Ano 2026 inteiro",
+    hint: "12 meses · futuro como agendado · instantâneo",
   },
   {
     key: "q1-2026",
     label: "Só primeiro trimestre 2026",
-    hint: "3 meses · 2 chunks · ~30s",
+    hint: "3 meses · instantâneo",
   },
   {
     key: "last-12m",
     label: "Últimos 12 meses",
-    hint: "12 meses · 6 chunks · ~90s",
+    hint: "12 meses · instantâneo",
   },
 ]
 
