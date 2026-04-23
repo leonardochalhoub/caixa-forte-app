@@ -458,10 +458,25 @@ export default async function ConciliacaoPage({
                     : netChange < 0
                       ? "text-expense"
                       : "text-strong"
+                const first = r.within[0]
+                const last = r.within[r.within.length - 1]
+                const fmt = (t: Tx) =>
+                  `${formatPtBrDateShort(t.occurred_on)} ${formatInSaoPaulo(new Date(t.created_at), "HH:mm")}`
+                const rangeLabel =
+                  first && last
+                    ? first.id === last.id
+                      ? fmt(first)
+                      : `${fmt(first)} → ${fmt(last)}`
+                    : null
                 return (
                   <tr key={r.account.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-strong">
-                      {r.account.name}
+                      <div>{r.account.name}</div>
+                      {rangeLabel && (
+                        <div className="mt-0.5 font-mono text-[10px] font-normal text-muted">
+                          {rangeLabel}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums text-body">
                       {formatBRL(r.startBalance)}
