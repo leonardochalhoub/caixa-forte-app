@@ -47,15 +47,16 @@ export function resolveCategoryId(
   return childMatch?.id ?? parentMatch.id
 }
 
+// Returns null when the user didn't name an account (or the name doesn't
+// match any). Callers must handle null by parking the capture in review —
+// we never silently dump unresolved rows into a default/last-used account,
+// because that quietly corrupts the wrong balance.
 export function resolveAccountId(
   hint: string | null,
   accounts: AccountRow[],
-  lastUsedId?: string | null,
 ): string | null {
-  if (hint) {
-    const match = accounts.find((a) => normalize(a.name).includes(normalize(hint)))
-    if (match) return match.id
-  }
-  if (lastUsedId && accounts.some((a) => a.id === lastUsedId)) return lastUsedId
-  return accounts[0]?.id ?? null
+  if (!hint) return null
+  const needle = normalize(hint)
+  const match = accounts.find((a) => normalize(a.name).includes(needle))
+  return match?.id ?? null
 }

@@ -15,6 +15,7 @@ import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { ClockWeather } from "./_components/ClockWeather"
 import { KpiOverview } from "./_components/KpiOverview"
+import { PendingCaptures } from "./_components/PendingCaptures"
 import { QuickCapture } from "./_components/QuickCapture"
 import { RecentTransactions } from "./_components/RecentTransactions"
 import { TrendStrip } from "./_components/TrendStrip"
@@ -34,6 +35,7 @@ export default async function DashboardPage() {
     { data: categories },
     { data: flowRealized },
     { data: upcomingTx },
+    { data: pendingCaptures },
   ] = await Promise.all([
     supabase
       .from("transactions")
@@ -74,6 +76,14 @@ export default async function DashboardPage() {
       .is("paid_at", null)
       .order("occurred_on", { ascending: true })
       .limit(5),
+    supabase
+      .from("capture_messages")
+      .select("id, channel, raw_input, groq_parse_json, created_at")
+      .eq("user_id", user.id)
+      .eq("error", "no_account")
+      .is("transaction_id", null)
+      .order("created_at", { ascending: true })
+      .limit(20),
   ])
 
   const formalIncomeIds = new Set(
@@ -189,6 +199,39 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-8">
       <QuickCapture hasGroqKey={hasGroqKey} hasAccounts={hasAccounts} />
+
+      <PendingCaptures
+        captures={(pendingCaptures ?? [])
+          .filter((c) => {
+            const p = c.groq_parse_json as { amount_cents?: number } | null
+            return !!p && typeof p.amount_cents === "number"
+          })
+          .map((c) => {
+            const p = c.groq_parse_json as {
+              amount_cents: number
+              type: "income" | "expense"
+              category_name: string
+              subcategory_name: string | null
+              merchant: string | null
+              occurred_on: string
+            }
+            return {
+              id: c.id,
+              channel: c.channel,
+              raw_input: c.raw_input,
+              created_at: c.created_at,
+              parsed: {
+                amountCents: p.amount_cents,
+                type: p.type,
+                categoryName: p.category_name,
+                subcategoryName: p.subcategory_name,
+                merchant: p.merchant,
+                occurredOn: p.occurred_on,
+              },
+            }
+          })}
+        accounts={accountsWithBalance.map((a) => ({ id: a.id, name: a.name }))}
+      />
 
       <KpiOverview
         heroAside={

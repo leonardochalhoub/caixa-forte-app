@@ -120,6 +120,134 @@ export async function deleteTransactionAction(id: string) {
 }
 
 // ============================================================
+// Resolve a pending capture (no_account) by committing it to a
+// chosen account. Uses the parsed data already stored on the
+// capture_messages row.
+// ============================================================
+
+const ResolvePendingSchema = z.object({
+  captureId: z.string().uuid(),
+  accountId: z.string().uuid(),
+  paid: z.boolean().optional(),
+})
+
+export async function resolvePendingCaptureAction(
+  input: z.infer<typeof ResolvePendingSchema>,
+) {
+  const user = await requireUser()
+  const parsed = ResolvePendingSchema.parse(input)
+  const supabase = await createServerClient()
+
+  const { data: cap, error: capErr } = await supabase
+    .from("capture_messages")
+    .select("id, groq_parse_json, transaction_id, error, channel, raw_input")
+    .eq("id", parsed.captureId)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  if (capErr) throw new Error(capErr.message)
+  if (!cap) throw new Error("Captura não encontrada.")
+  if (cap.transaction_id) throw new Error("Essa captura já virou transação.")
+
+  const p = cap.groq_parse_json as {
+    amount_cents: number
+    type: "income" | "expense"
+    category_name: string
+    subcategory_name: string | null
+    merchant: string | null
+    occurred_on: string
+    note: string | null
+  } | null
+  if (!p) throw new Error("Captura sem dados parseados.")
+
+  const { data: categoriesRaw } = await supabase
+    .from("categories")
+    .select("id, name, parent_id, is_income")
+    .eq("user_id", user.id)
+    .is("archived_at", null)
+  let categoryId = resolveCategoryId(
+    {
+      category_name: p.category_name,
+      subcategory_name: p.subcategory_name,
+      type: p.type,
+    },
+    categoriesRaw ?? [],
+  )
+  if (!categoryId) {
+    const newParent = await supabase
+      .from("categories")
+      .insert({
+        user_id: user.id,
+        name: p.category_name,
+        is_income: p.type === "income",
+      })
+      .select("id")
+      .single()
+    if (newParent.error) throw new Error(newParent.error.message)
+    categoryId = newParent.data.id
+    if (p.subcategory_name) {
+      const newChild = await supabase
+        .from("categories")
+        .insert({
+          user_id: user.id,
+          parent_id: categoryId,
+          name: p.subcategory_name,
+          is_income: p.type === "income",
+        })
+        .select("id")
+        .single()
+      if (!newChild.error && newChild.data) categoryId = newChild.data.id
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const paidAt = resolvePaidAt(p.occurred_on, parsed.paid, today)
+
+  const { data: tx, error: txErr } = await untyped(supabase)
+    .from("transactions")
+    .insert({
+      user_id: user.id,
+      account_id: parsed.accountId,
+      category_id: categoryId,
+      type: p.type,
+      amount_cents: p.amount_cents,
+      occurred_on: p.occurred_on,
+      merchant: p.merchant,
+      note: p.note,
+      source: cap.channel,
+      raw_input: cap.raw_input,
+      groq_parse_json: p,
+      paid_at: paidAt,
+    })
+    .select("id")
+    .single()
+  if (txErr) throw new Error(txErr.message)
+
+  const { error: updErr } = await supabase
+    .from("capture_messages")
+    .update({ transaction_id: tx.id, error: null })
+    .eq("id", cap.id)
+    .eq("user_id", user.id)
+  if (updErr) throw new Error(updErr.message)
+
+  revalidatePath("/app")
+  revalidatePath("/app/transacoes")
+  return { ok: true, transactionId: tx.id }
+}
+
+export async function discardPendingCaptureAction(captureId: string) {
+  const user = await requireUser()
+  const supabase = await createServerClient()
+  const { error } = await supabase
+    .from("capture_messages")
+    .delete()
+    .eq("id", captureId)
+    .eq("user_id", user.id)
+    .is("transaction_id", null)
+  if (error) throw new Error(error.message)
+  revalidatePath("/app")
+}
+
+// ============================================================
 // AI capture — text + audio
 // ============================================================
 
@@ -143,7 +271,7 @@ export interface CaptureResult {
 
 async function loadUserContext(userId: string) {
   const supabase = await createServerClient()
-  const [{ data: categoriesRaw }, { data: accountsRaw }, { data: lastTx }] = await Promise.all([
+  const [{ data: categoriesRaw }, { data: accountsRaw }] = await Promise.all([
     supabase
       .from("categories")
       .select("id, name, parent_id, is_income")
@@ -156,17 +284,10 @@ async function loadUserContext(userId: string) {
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("sort_order"),
-    supabase
-      .from("transactions")
-      .select("account_id")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(1),
   ])
 
   const categoriesFlat = categoriesRaw ?? []
   const accounts = accountsRaw ?? []
-  const lastAccountId = lastTx?.[0]?.account_id ?? null
 
   const parents = categoriesFlat.filter((c) => c.parent_id === null)
   const categoriesTree: CategoryNode[] = parents.map((p) => ({
@@ -179,7 +300,7 @@ async function loadUserContext(userId: string) {
       .map((c) => ({ id: c.id, name: c.name, is_income: c.is_income })),
   }))
 
-  return { supabase, categoriesFlat, categoriesTree, accounts, lastAccountId }
+  return { supabase, categoriesFlat, categoriesTree, accounts }
 }
 
 function channelToSource(channel: CaptureChannel): string {
@@ -216,7 +337,7 @@ export async function persistCaptureAndTransaction(args: {
   }
   error?: string
 }): Promise<CaptureResult> {
-  const { supabase, categoriesFlat, accounts, lastAccountId } = await loadUserContext(args.userId)
+  const { supabase, categoriesFlat, accounts } = await loadUserContext(args.userId)
 
   if (!args.parseResult || args.error) {
     const { data: captureRow, error } = await supabase
@@ -304,7 +425,7 @@ export async function persistCaptureAndTransaction(args: {
     }
   }
 
-  const accountId = resolveAccountId(p.account_hint, accounts, lastAccountId)
+  const accountId = resolveAccountId(p.account_hint, accounts)
 
   if (!accountId) {
     const { data: captureRow, error } = await supabase
@@ -324,10 +445,14 @@ export async function persistCaptureAndTransaction(args: {
       .select("id")
       .single()
     if (error) throw new Error(error.message)
+    const errMsg =
+      accounts.length === 0
+        ? "Você não tem nenhuma conta ativa. Adicione uma em /app/contas."
+        : `Não entendi de qual conta. Diga na mensagem (ex: "pelo Nubank", "na Caixa") e tente de novo.`
     return {
       ok: false,
       captureId: captureRow.id,
-      error: "Você não tem nenhuma conta ativa. Adicione uma em /app/contas.",
+      error: errMsg,
       fallbackFormNeeded: true,
     }
   }

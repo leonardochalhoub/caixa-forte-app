@@ -28,3 +28,6 @@ tsconfig.tsbuildinfo
 supabase/.branches
 supabase/.temp
 supabase/.env
+
+# local ledger backups — contain personal financial data
+backups/

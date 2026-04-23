@@ -43,31 +43,23 @@ function channelToSource(c: CaptureChannel): string {
 }
 
 export async function loadUserContext(client: Client, userId: string) {
-  const [{ data: categoriesRaw }, { data: accountsRaw }, { data: lastTx }] =
-    await Promise.all([
-      client
-        .from("categories")
-        .select("id, name, parent_id, is_income")
-        .eq("user_id", userId)
-        .is("archived_at", null)
-        .order("sort_order"),
-      client
-        .from("accounts")
-        .select("id, name")
-        .eq("user_id", userId)
-        .is("archived_at", null)
-        .order("sort_order"),
-      client
-        .from("transactions")
-        .select("account_id")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .limit(1),
-    ])
+  const [{ data: categoriesRaw }, { data: accountsRaw }] = await Promise.all([
+    client
+      .from("categories")
+      .select("id, name, parent_id, is_income")
+      .eq("user_id", userId)
+      .is("archived_at", null)
+      .order("sort_order"),
+    client
+      .from("accounts")
+      .select("id, name")
+      .eq("user_id", userId)
+      .is("archived_at", null)
+      .order("sort_order"),
+  ])
 
   const categoriesFlat = categoriesRaw ?? []
   const accounts = accountsRaw ?? []
-  const lastAccountId = lastTx?.[0]?.account_id ?? null
 
   const parents = categoriesFlat.filter((c) => c.parent_id === null)
   const categoriesTree: CategoryNode[] = parents.map((p) => ({
@@ -80,7 +72,7 @@ export async function loadUserContext(client: Client, userId: string) {
       .map((c) => ({ id: c.id, name: c.name, is_income: c.is_income })),
   }))
 
-  return { categoriesFlat, categoriesTree, accounts, lastAccountId }
+  return { categoriesFlat, categoriesTree, accounts }
 }
 
 interface PersistArgs {
@@ -113,10 +105,7 @@ interface PersistArgs {
  */
 export async function persistCapture(args: PersistArgs): Promise<CaptureResult> {
   const { client, userId, channel } = args
-  const { categoriesFlat, accounts, lastAccountId } = await loadUserContext(
-    client,
-    userId,
-  )
+  const { categoriesFlat, accounts } = await loadUserContext(client, userId)
 
   if (!args.parseResult || args.error) {
     const { data: captureRow, error } = await client
@@ -202,7 +191,7 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
     }
   }
 
-  const accountId = resolveAccountId(p.account_hint, accounts, lastAccountId)
+  const accountId = resolveAccountId(p.account_hint, accounts)
 
   if (!accountId) {
     const { data: captureRow, error } = await client
@@ -222,11 +211,14 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
       .select("id")
       .single()
     if (error) throw new Error(error.message)
+    const errMsg =
+      accounts.length === 0
+        ? "Você não tem nenhuma conta ativa. Adicione uma em /app/contas."
+        : `Não entendi de qual conta. Diga na mensagem (ex: "pelo Nubank", "na Caixa") e tente de novo.`
     return {
       ok: false,
       captureId: captureRow.id,
-      error:
-        "Você não tem nenhuma conta ativa. Adicione uma em /app/contas.",
+      error: errMsg,
       fallbackFormNeeded: true,
     }
   }

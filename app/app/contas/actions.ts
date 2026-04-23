@@ -101,11 +101,15 @@ export async function reconcileAccountBalance(input: z.infer<typeof ReconcileSch
   if (accErr) throw new Error(accErr.message)
   if (!acc) throw new Error("Conta não encontrada.")
 
+  // Balance shown on the UI only counts rows with paid_at set. Use the
+  // same filter here so the diff we compute matches what the user sees —
+  // otherwise an unpaid agendada would skew the adjustment.
   const { data: flows, error: flowErr } = await supabase
     .from("transactions")
     .select("type, amount_cents")
     .eq("account_id", parsed.accountId)
     .eq("user_id", user.id)
+    .not("paid_at", "is", null)
   if (flowErr) throw new Error(flowErr.message)
 
   const flow = (flows ?? []).reduce(
@@ -125,8 +129,19 @@ export async function reconcileAccountBalance(input: z.infer<typeof ReconcileSch
   const adjType = diff > 0 ? "income" : "expense"
   const adjAmount = Math.abs(diff)
   const today = new Date().toISOString().slice(0, 10)
+  const nowIso = new Date().toISOString()
 
-  const { data: adj, error: adjErr } = await supabase
+  // paid_at must be set so the adjustment actually moves the balance.
+  // Without it the row is treated as "agendada" and the reconcile is a no-op.
+  const { data: adj, error: adjErr } = await (
+    supabase as unknown as {
+      from: (t: string) => {
+        insert: (row: object) => {
+          select: (cols: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> }
+        }
+      }
+    }
+  )
     .from("transactions")
     .insert({
       user_id: user.id,
@@ -138,10 +153,12 @@ export async function reconcileAccountBalance(input: z.infer<typeof ReconcileSch
       merchant: "Ajuste de saldo",
       note: parsed.note ?? `Ajuste: declarado vs computado diferiram em ${diff} centavos`,
       source: "manual",
+      paid_at: nowIso,
     })
     .select("id")
     .single()
   if (adjErr) throw new Error(adjErr.message)
+  if (!adj) throw new Error("Ajuste não retornou linha.")
 
   revalidatePath("/app/contas")
   revalidatePath("/app")
