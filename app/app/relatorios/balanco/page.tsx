@@ -328,40 +328,59 @@ export default async function BalancoPage({
 
   // Saldo por conta na data do snapshot.
   // Não-cartão: só paid_at !== null e paid_at <= snapshot (caixa real).
-  // Cartão: reflete dívida LIVE — todas as tx no cartão + todos os
-  // lump-sums de fatura não pagos, SEM filtro de occurred_on. Isso
-  // garante source-of-truth consistente com /app/cartoes e com o hero
-  // da home: se o usuário gasta mais no cartão, Balanço sobe junto.
+  // Cartão: faturas do PERÍODO selecionado, ainda não pagas até o snapshot.
+  //   - Mensal Abril → só fatura(s) com occurred_on em 2026-04
+  //   - Anual 2026   → faturas com occurred_on em 2026-* ainda abertas em 31/12
+  // Mesma lógica do /app/cartoes (agrupamento por YYYY-MM).
+  const periodPrefix =
+    period.kind === "mensal"
+      ? `${period.year}-${String(period.month).padStart(2, "0")}`
+      : `${period.year}`
+  const inPeriod = (ymd: string): boolean => ymd.startsWith(periodPrefix)
+  const isPaidBySnapshot = (t: { paid_at: string | null }): boolean =>
+    !!t.paid_at && t.paid_at <= `${snapshotDate}T23:59:59Z`
+
   function balanceAt(acc: AccountRow, cutoffIso: string): number {
     const opening = Number(acc.opening_balance_cents ?? 0)
     const isCredit = acc.type === "credit"
     const mine = txs.filter((t) => t.account_id === acc.id)
     let flow = 0
-    for (const t of mine) {
-      if (!isCredit) {
+
+    if (!isCredit) {
+      for (const t of mine) {
         if (t.occurred_on > cutoffIso) continue
         if (!t.paid_at) continue
         if (t.paid_at > `${cutoffIso}T23:59:59Z`) continue
+        flow +=
+          t.type === "income"
+            ? Number(t.amount_cents)
+            : -Number(t.amount_cents)
       }
+      return opening + flow
+    }
+
+    // Cartão: soma só faturas do período selecionado ainda abertas no snapshot
+    for (const t of mine) {
+      if (!inPeriod(t.occurred_on)) continue
+      if (isPaidBySnapshot(t)) continue
       flow +=
         t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)
     }
-    if (isCredit) {
-      const bankKey = bankKeyOf(acc.name)
-      if (bankKey) {
-        for (const t of txs) {
-          if (t.account_id === acc.id) continue
-          if (t.is_transfer) continue
-          if (t.type !== "expense") continue
-          if (t.paid_at) continue // já pago, não é dívida
-          const m = normalizeStr(t.merchant ?? "")
-          if (!m.includes("cartao")) continue
-          if (!m.includes(bankKey)) continue
-          flow -= Number(t.amount_cents) // aumenta dívida
-        }
+    const bankKey = bankKeyOf(acc.name)
+    if (bankKey) {
+      for (const t of txs) {
+        if (t.account_id === acc.id) continue
+        if (t.is_transfer) continue
+        if (t.type !== "expense") continue
+        if (!inPeriod(t.occurred_on)) continue
+        if (isPaidBySnapshot(t)) continue
+        const m = normalizeStr(t.merchant ?? "")
+        if (!m.includes("cartao")) continue
+        if (!m.includes(bankKey)) continue
+        flow -= Number(t.amount_cents)
       }
     }
-    return opening + flow
+    return flow
   }
 
   type Line = {
