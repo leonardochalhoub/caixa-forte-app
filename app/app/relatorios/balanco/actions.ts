@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
+import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
 
 const CreateSchema = z.object({
   period: z.string().min(1),
@@ -63,6 +64,41 @@ export async function updateBalanceAdjustmentAction(
     .eq("user_id", user.id)
   if (error) throw new Error(error.message)
   revalidatePath("/app/relatorios/balanco")
+}
+
+export async function refreshFipeAdjustmentAction(id: string) {
+  const user = await requireUser()
+  const supabase = await createServerClient()
+  const { data, error } = await untyped(supabase)
+    .from("balance_adjustments")
+    .select("id, metadata, label")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error("Linha não encontrada.")
+  const meta = (data as { metadata?: FipeMetadata }).metadata
+  if (!meta || meta.source !== "fipe") {
+    throw new Error("Essa linha não tem origem FIPE.")
+  }
+  const price = await fetchFipePrice(meta)
+  const newMeta: FipeMetadata = {
+    ...meta,
+    last_checked_at: new Date().toISOString(),
+    last_reference_month: price.referenceMonth,
+  }
+  const { error: updErr } = await untyped(supabase)
+    .from("balance_adjustments")
+    .update({
+      amount_cents: price.priceCents,
+      metadata: newMeta,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("user_id", user.id)
+  if (updErr) throw new Error(updErr.message)
+  revalidatePath("/app/relatorios/balanco")
+  return { price: price.price, referenceMonth: price.referenceMonth }
 }
 
 export async function deleteBalanceAdjustmentAction(id: string) {
