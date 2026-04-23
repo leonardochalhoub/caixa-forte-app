@@ -700,15 +700,19 @@ export default async function BalancoPage({
                 items={adjustmentsBySection.get("ativo_nc_imobilizado") ?? []}
               />
             </div>
-            <div className="pl-2">
-              <SubSectionHeader
-                title="Intangível"
-                total={ativoNCIntangivelTotal}
-              />
-              <AdjList
-                items={adjustmentsBySection.get("ativo_nc_intangivel") ?? []}
-              />
-            </div>
+            {(ativoNCIntangivelTotal !== 0 ||
+              (adjustmentsBySection.get("ativo_nc_intangivel") ?? []).length >
+                0) && (
+              <div className="pl-2">
+                <SubSectionHeader
+                  title="Intangível"
+                  total={ativoNCIntangivelTotal}
+                />
+                <AdjList
+                  items={adjustmentsBySection.get("ativo_nc_intangivel") ?? []}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-baseline justify-between border-t-2 border-border pt-3">

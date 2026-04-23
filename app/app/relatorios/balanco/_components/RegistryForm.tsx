@@ -23,10 +23,21 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
 import { parseBRLToCents } from "@/lib/money"
-import {
-  createBalanceRegistryAction,
-  suggestBalanceRegistryAction,
-} from "../actions"
+import { createBalanceRegistryAction } from "../actions"
+
+type SuggestResponse =
+  | {
+      ok: true
+      kind: string
+      description: string
+      debit_section: string
+      debit_label: string
+      credit_section: string
+      credit_label: string
+      amount_cents: number | null
+      note: string | null
+    }
+  | { ok: false; error: string }
 
 // Templates visíveis no UI (espelha REGISTRY_KINDS do server).
 const KINDS = [
@@ -197,7 +208,16 @@ export function AddRegistryButton({ period }: { period: string }) {
   function runAI(prompt: string) {
     startAi(async () => {
       try {
-        const r = await suggestBalanceRegistryAction({ description: prompt })
+        const res = await fetch("/api/ai/suggest-registry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description: prompt }),
+        })
+        const r = (await res.json().catch(() => null)) as SuggestResponse | null
+        if (!r) {
+          toast.error(`IA falhou: resposta inválida (HTTP ${res.status}).`)
+          return
+        }
         if (!r.ok) {
           toast.error(`IA: ${r.error}`)
           return
