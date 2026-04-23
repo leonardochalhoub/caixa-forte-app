@@ -8,6 +8,11 @@ import { untyped } from "@/lib/supabase/untyped"
 import { formatBRL } from "@/lib/money"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { BalancoPeriodSelector } from "./_components/BalancoPeriodSelector"
+import {
+  AddLineButton,
+  AdjustmentActions,
+  type Adjustment,
+} from "./_components/AdjustmentForm"
 
 const MONTH_NAMES_PT = [
   "Janeiro",
@@ -119,26 +124,63 @@ export default async function BalancoPage({
       ? `${period.year}-01-01`
       : `${period.year}-${String(period.month).padStart(2, "0")}-01`
 
-  const [{ data: accounts }, { data: txsRaw }, { data: profileRaw }] =
-    await Promise.all([
-      supabase
-        .from("accounts")
-        .select("id, name, type, opening_balance_cents")
-        .eq("user_id", user.id)
-        .is("archived_at", null),
-      untyped(supabase)
-        .from("transactions")
-        .select(
-          "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer",
-        )
-        .eq("user_id", user.id)
-        .lte("occurred_on", snapshotDate),
-      untyped(supabase)
-        .from("profiles")
-        .select("display_name")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-    ])
+  const [
+    { data: accounts },
+    { data: txsRaw },
+    { data: profileRaw },
+    { data: adjustmentsRaw },
+  ] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, name, type, opening_balance_cents")
+      .eq("user_id", user.id)
+      .is("archived_at", null),
+    untyped(supabase)
+      .from("transactions")
+      .select(
+        "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer",
+      )
+      .eq("user_id", user.id)
+      .lte("occurred_on", snapshotDate),
+    untyped(supabase)
+      .from("profiles")
+      .select("display_name")
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    untyped(supabase)
+      .from("balance_adjustments")
+      .select("id, period, line_key, label, amount_cents, note")
+      .eq("user_id", user.id)
+      .eq("period", periodStr),
+  ])
+
+  type AdjRow = {
+    id: string
+    period: string
+    line_key: string
+    label: string
+    amount_cents: number
+    note: string | null
+  }
+  const adjustments = (adjustmentsRaw ?? []) as AdjRow[]
+  const adjustmentsBySection = new Map<string, Adjustment[]>()
+  for (const a of adjustments) {
+    const [section] = a.line_key.split("::")
+    if (!section) continue
+    const list = adjustmentsBySection.get(section) ?? []
+    list.push({
+      id: a.id,
+      label: a.label,
+      amount_cents: a.amount_cents,
+      note: a.note,
+    })
+    adjustmentsBySection.set(section, list)
+  }
+  const sumAdj = (section: string) =>
+    (adjustmentsBySection.get(section) ?? []).reduce(
+      (s, a) => s + a.amount_cents,
+      0,
+    )
 
   const accs = (accounts ?? []) as AccountRow[]
   const txs = (txsRaw ?? []) as Tx[]
@@ -203,17 +245,34 @@ export default async function BalancoPage({
   const ativoNCBloqueado = buckets.get("ativo_nc_bloqueado")
   const passivoCartoes = buckets.get("passivo_circulante_cartoes")
 
-  const ativoCirculanteTotal = ativoCirculanteDisponivel?.total ?? 0
+  const ativoCirculanteTotal =
+    (ativoCirculanteDisponivel?.total ?? 0) +
+    sumAdj("ativo_circulante_disponivel") +
+    sumAdj("ativo_circulante_outros")
   const ativoNCInvestimentosTotal =
     (ativoNCRendaFixa?.total ?? 0) +
     (ativoNCRendaVar?.total ?? 0) +
-    (ativoNCCripto?.total ?? 0)
-  const ativoNCBloqueadoTotal = ativoNCBloqueado?.total ?? 0
-  const ativoNCTotal = ativoNCInvestimentosTotal + ativoNCBloqueadoTotal
+    (ativoNCCripto?.total ?? 0) +
+    sumAdj("ativo_nc_investimento_renda_fixa") +
+    sumAdj("ativo_nc_investimento_renda_variavel") +
+    sumAdj("ativo_nc_investimento_cripto") +
+    sumAdj("ativo_nc_investimentos_outros")
+  const ativoNCBloqueadoTotal =
+    (ativoNCBloqueado?.total ?? 0) + sumAdj("ativo_nc_bloqueado")
+  const ativoNCImobilizadoTotal = sumAdj("ativo_nc_imobilizado")
+  const ativoNCIntangivelTotal = sumAdj("ativo_nc_intangivel")
+  const ativoNCTotal =
+    ativoNCInvestimentosTotal +
+    ativoNCBloqueadoTotal +
+    ativoNCImobilizadoTotal +
+    ativoNCIntangivelTotal
   const ativoTotal = ativoCirculanteTotal + ativoNCTotal
 
-  const passivoCirculanteTotal = passivoCartoes?.total ?? 0
-  const passivoNCTotal = 0 // sem dívidas longas no modelo atual
+  const passivoCirculanteTotal =
+    (passivoCartoes?.total ?? 0) +
+    sumAdj("passivo_circulante_cartoes") +
+    sumAdj("passivo_circulante_outros")
+  const passivoNCTotal = sumAdj("passivo_nc_financiamentos")
   const passivoTotal = passivoCirculanteTotal + passivoNCTotal
 
   // Patrimônio líquido = Ativo - Passivo (equação fundamental do BP)
@@ -334,6 +393,20 @@ export default async function BalancoPage({
               total={ativoCirculanteTotal}
             />
             <Bucket bucket={ativoCirculanteDisponivel} />
+            <AdjList
+              items={adjustmentsBySection.get("ativo_circulante_disponivel") ?? []}
+            />
+            <AdjList
+              items={adjustmentsBySection.get("ativo_circulante_outros") ?? []}
+              hint="Outros ativos circulantes"
+            />
+            <div className="no-print pl-4">
+              <AddLineButton
+                period={periodStr}
+                section="ativo_circulante_outros"
+                hint="Recebíveis curto prazo, adiantamentos, estoques, etc."
+              />
+            </div>
           </div>
 
           <div className="space-y-2 pt-3">
@@ -346,6 +419,19 @@ export default async function BalancoPage({
               <Bucket bucket={ativoNCRendaFixa} />
               <Bucket bucket={ativoNCRendaVar} />
               <Bucket bucket={ativoNCCripto} />
+              <AdjList
+                items={
+                  adjustmentsBySection.get("ativo_nc_investimentos_outros") ?? []
+                }
+                hint="Outros investimentos"
+              />
+              <div className="no-print pl-4">
+                <AddLineButton
+                  period={periodStr}
+                  section="ativo_nc_investimentos_outros"
+                  hint="Participações, fundos, investimentos não trackeados"
+                />
+              </div>
             </div>
             {ativoNCBloqueadoTotal > 0 && (
               <div className="pl-2">
@@ -354,8 +440,43 @@ export default async function BalancoPage({
                   total={ativoNCBloqueadoTotal}
                 />
                 <Bucket bucket={ativoNCBloqueado} />
+                <AdjList
+                  items={adjustmentsBySection.get("ativo_nc_bloqueado") ?? []}
+                />
               </div>
             )}
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Imobilizado"
+                total={ativoNCImobilizadoTotal}
+              />
+              <AdjList
+                items={adjustmentsBySection.get("ativo_nc_imobilizado") ?? []}
+              />
+              <div className="no-print pl-4">
+                <AddLineButton
+                  period={periodStr}
+                  section="ativo_nc_imobilizado"
+                  hint="Imóveis, veículos, equipamentos (valor de mercado)"
+                />
+              </div>
+            </div>
+            <div className="pl-2">
+              <SubSectionHeader
+                title="Intangível"
+                total={ativoNCIntangivelTotal}
+              />
+              <AdjList
+                items={adjustmentsBySection.get("ativo_nc_intangivel") ?? []}
+              />
+              <div className="no-print pl-4">
+                <AddLineButton
+                  period={periodStr}
+                  section="ativo_nc_intangivel"
+                  hint="Marcas, patentes, software próprio, domínios"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="flex items-baseline justify-between border-t-2 border-border pt-3">
@@ -377,20 +498,37 @@ export default async function BalancoPage({
               title="Passivo Circulante"
               total={passivoCirculanteTotal}
             />
-            {passivoCirculanteTotal > 0 ? (
-              <Bucket bucket={passivoCartoes} />
-            ) : (
-              <p className="pl-4 text-xs italic text-muted">
-                Sem dívidas de curto prazo.
-              </p>
-            )}
+            <Bucket bucket={passivoCartoes} />
+            <AdjList
+              items={adjustmentsBySection.get("passivo_circulante_cartoes") ?? []}
+            />
+            <AdjList
+              items={adjustmentsBySection.get("passivo_circulante_outros") ?? []}
+              hint="Outros passivos circulantes"
+            />
+            <div className="no-print pl-4">
+              <AddLineButton
+                period={periodStr}
+                section="passivo_circulante_outros"
+                hint="Contas a pagar, salários, impostos, empréstimo curto prazo"
+              />
+            </div>
           </div>
 
           <div className="space-y-2 pt-3">
             <SectionHeader title="Passivo Não Circulante" total={passivoNCTotal} />
-            <p className="pl-4 text-xs italic text-muted">
-              Sem financiamentos longos registrados.
-            </p>
+            <AdjList
+              items={
+                adjustmentsBySection.get("passivo_nc_financiamentos") ?? []
+              }
+            />
+            <div className="no-print pl-4">
+              <AddLineButton
+                period={periodStr}
+                section="passivo_nc_financiamentos"
+                hint="Financiamento imóvel, empréstimo longo, consignado"
+              />
+            </div>
           </div>
 
           <div className="flex items-baseline justify-between border-t border-border pt-3">
@@ -499,6 +637,52 @@ function SubSectionHeader({ title, total }: { title: string; total: number }) {
       <span className="font-mono text-xs tabular-nums text-body">
         {formatBRL(total)}
       </span>
+    </div>
+  )
+}
+
+function AdjList({
+  items,
+  hint,
+}: {
+  items: Adjustment[]
+  hint?: string
+}) {
+  if (items.length === 0) return null
+  return (
+    <div className="space-y-1 pl-4 text-xs">
+      {hint && (
+        <p className="text-[10px] uppercase tracking-wider text-muted">{hint}</p>
+      )}
+      <ul className="space-y-0.5 pl-3">
+        {items.map((a) => (
+          <li
+            key={a.id}
+            className="group flex items-baseline justify-between gap-2 text-[11px] text-body"
+          >
+            <span className="flex items-baseline gap-1">
+              <span className="text-muted">↳</span>
+              {a.label}
+              {a.note && (
+                <span
+                  className="cursor-help text-[9px] text-muted"
+                  title={a.note}
+                >
+                  ⓘ
+                </span>
+              )}
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="font-mono tabular-nums">
+                {formatBRL(a.amount_cents)}
+              </span>
+              <span className="no-print opacity-0 transition-opacity group-hover:opacity-100">
+                <AdjustmentActions adjustment={a} />
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
