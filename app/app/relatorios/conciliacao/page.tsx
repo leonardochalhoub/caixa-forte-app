@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+import { ArrowDown, ArrowUp, ArrowLeftRight, TrendingDown, TrendingUp } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
@@ -430,15 +431,39 @@ export default async function ConciliacaoPage({
               <tr>
                 <th className="px-3 py-2 text-left">Conta</th>
                 <th className="px-3 py-2 text-right">Saldo inicial</th>
-                <th className="px-3 py-2 text-right">Entradas</th>
-                <th className="px-3 py-2 text-right">Saídas</th>
-                <th className="px-3 py-2 text-right">Transf. ↔</th>
+                <th className="px-3 py-2 text-right">
+                  <span className="inline-flex items-center justify-end gap-1">
+                    <ArrowUp className="h-3 w-3 text-income" />
+                    Entradas
+                  </span>
+                </th>
+                <th className="px-3 py-2 text-right">
+                  <span className="inline-flex items-center justify-end gap-1">
+                    <ArrowDown className="h-3 w-3 text-expense" />
+                    Saídas
+                  </span>
+                </th>
+                <th className="px-3 py-2 text-right">
+                  <span className="inline-flex items-center justify-end gap-1">
+                    <ArrowLeftRight className="h-3 w-3" />
+                    Transf.
+                  </span>
+                </th>
                 <th className="px-3 py-2 text-right">Saldo final</th>
               </tr>
             </thead>
             <tbody>
               {nonFgts.map((r) => {
                 const transferNet = r.transferInCents - r.transferOutCents
+                const netChange = r.endBalance - r.startBalance
+                const TrendIcon =
+                  netChange > 0 ? TrendingUp : netChange < 0 ? TrendingDown : null
+                const trendColor =
+                  netChange > 0
+                    ? "text-income"
+                    : netChange < 0
+                      ? "text-expense"
+                      : "text-strong"
                 return (
                   <tr key={r.account.id} className="border-t border-border">
                     <td className="px-3 py-2 font-medium text-strong">
@@ -458,8 +483,13 @@ export default async function ConciliacaoPage({
                         ? "—"
                         : `${transferNet > 0 ? "+" : "−"} ${formatBRL(Math.abs(transferNet))}`}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-strong">
-                      {formatBRL(r.endBalance)}
+                    <td
+                      className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${trendColor}`}
+                    >
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {TrendIcon && <TrendIcon className="h-3.5 w-3.5" />}
+                        {formatBRL(r.endBalance)}
+                      </span>
                     </td>
                   </tr>
                 )
@@ -522,26 +552,49 @@ export default async function ConciliacaoPage({
                   </td>
                 </tr>
               )}
-              <tr className="border-t-2 border-border">
-                <td className="px-3 py-2 text-sm font-semibold uppercase tracking-wider text-strong">
-                  Total ex-FGTS
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-strong">
-                  {formatBRL(accountsTotal.startBalance)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-income">
-                  + {formatBRL(totalIncomeCents)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-expense">
-                  − {formatBRL(totalExpenseCents)}
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-muted">
-                  0,00
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-strong">
-                  {formatBRL(projectedEndBalance)}
-                </td>
-              </tr>
+              {(() => {
+                const totalNetChange =
+                  projectedEndBalance - accountsTotal.startBalance
+                const TotalTrend =
+                  totalNetChange > 0
+                    ? TrendingUp
+                    : totalNetChange < 0
+                      ? TrendingDown
+                      : null
+                const totalTrendColor =
+                  totalNetChange > 0
+                    ? "text-income"
+                    : totalNetChange < 0
+                      ? "text-expense"
+                      : "text-strong"
+                return (
+                  <tr className="border-t-2 border-border">
+                    <td className="px-3 py-2 text-sm font-semibold uppercase tracking-wider text-strong">
+                      Total ex-FGTS
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-strong">
+                      {formatBRL(accountsTotal.startBalance)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-income">
+                      + {formatBRL(totalIncomeCents)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-expense">
+                      − {formatBRL(totalExpenseCents)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums text-muted">
+                      0,00
+                    </td>
+                    <td
+                      className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${totalTrendColor}`}
+                    >
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {TotalTrend && <TotalTrend className="h-4 w-4" />}
+                        {formatBRL(projectedEndBalance)}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })()}
             </tfoot>
           </table>
         </div>
@@ -553,37 +606,66 @@ export default async function ConciliacaoPage({
         )}
       </section>
 
-      <section className="space-y-3 rounded-2xl border-2 border-border bg-subtle p-5">
+      <section className="avoid-break space-y-3 rounded-2xl border-2 border-border bg-subtle p-5">
         <h2 className="text-sm font-medium uppercase tracking-wider text-strong">
           Prova matemática
         </h2>
-        <p className="font-serif text-sm text-body">
-          Saldo inicial{" "}
-          <span className="font-mono text-strong">
-            {formatBRL(accountsTotal.startBalance)}
-          </span>{" "}
-          + entradas{" "}
-          <span className="font-mono text-income">
-            {formatBRL(totalIncomeCents)}
-          </span>{" "}
-          − saídas{" "}
-          <span className="font-mono text-expense">
-            {formatBRL(totalExpenseCents)}
-          </span>{" "}
-          + transf. recebidas{" "}
-          <span className="font-mono text-muted">
-            {formatBRL(accountsTotal.transferInCents)}
-          </span>{" "}
-          − transf. enviadas{" "}
-          <span className="font-mono text-muted">
-            {formatBRL(accountsTotal.transferOutCents)}
-          </span>{" "}
-          ={" "}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 font-serif text-sm text-body">
+          <span>Saldo inicial</span>
           <span className="font-mono font-semibold text-strong">
-            {formatBRL(projectedEndBalance)}
-          </span>{" "}
-          {proofOK ? "✓" : "✗"}
-        </p>
+            {formatBRL(accountsTotal.startBalance)}
+          </span>
+          <span className="inline-flex items-center gap-1 text-income">
+            <ArrowUp className="h-3.5 w-3.5" />
+            entradas
+            <span className="font-mono font-semibold">
+              {formatBRL(totalIncomeCents)}
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-1 text-expense">
+            <ArrowDown className="h-3.5 w-3.5" />
+            saídas
+            <span className="font-mono font-semibold">
+              {formatBRL(totalExpenseCents)}
+            </span>
+          </span>
+          {(accountsTotal.transferInCents > 0 ||
+            accountsTotal.transferOutCents > 0) && (
+            <span className="inline-flex items-center gap-1 text-muted">
+              <ArrowLeftRight className="h-3.5 w-3.5" />
+              transf.
+              <span className="font-mono">
+                {formatBRL(
+                  accountsTotal.transferInCents -
+                    accountsTotal.transferOutCents,
+                )}
+              </span>
+            </span>
+          )}
+          <span className="text-muted">=</span>
+          {(() => {
+            const delta = projectedEndBalance - accountsTotal.startBalance
+            const color =
+              delta > 0
+                ? "text-income"
+                : delta < 0
+                  ? "text-expense"
+                  : "text-strong"
+            const Icon =
+              delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : null
+            return (
+              <span
+                className={`inline-flex items-center gap-1.5 font-mono text-base font-bold ${color}`}
+              >
+                {Icon && <Icon className="h-4 w-4" />}
+                {formatBRL(projectedEndBalance)}
+              </span>
+            )
+          })()}
+          <span className={proofOK ? "text-income" : "text-expense"}>
+            {proofOK ? "✓" : "✗"}
+          </span>
+        </div>
         <p className="text-xs text-muted">
           &ldquo;Saldo final&rdquo; aqui inclui{" "}
           {pendingInPeriod.length > 0
@@ -640,25 +722,35 @@ export default async function ConciliacaoPage({
                       const delta =
                         t.type === "income" ? t.amount_cents : -t.amount_cents
                       running += delta
+                      const isIncome = delta >= 0
                       return (
                         <tr key={t.id} className="border-b border-border/50">
                           <td className="py-1 text-body">
                             {formatPtBrDateShort(t.occurred_on)}
                           </td>
                           <td className="py-1 text-body">
-                            {t.merchant ?? "(sem descrição)"}
-                            {t.is_transfer && (
-                              <span className="ml-1.5 text-[10px] uppercase tracking-wider text-muted">
-                                transf.
-                              </span>
-                            )}
+                            <span className="inline-flex items-center gap-1.5">
+                              {t.is_transfer ? (
+                                <ArrowLeftRight className="h-3 w-3 text-muted" />
+                              ) : isIncome ? (
+                                <ArrowUp className="h-3 w-3 text-income" />
+                              ) : (
+                                <ArrowDown className="h-3 w-3 text-expense" />
+                              )}
+                              {t.merchant ?? "(sem descrição)"}
+                              {t.is_transfer && (
+                                <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
+                                  transf.
+                                </span>
+                              )}
+                            </span>
                           </td>
                           <td
                             className={`py-1 text-right font-mono tabular-nums ${
-                              delta >= 0 ? "text-income" : "text-expense"
+                              isIncome ? "text-income" : "text-expense"
                             }`}
                           >
-                            {delta >= 0 ? "+" : "−"} {formatBRL(Math.abs(delta))}
+                            {isIncome ? "+" : "−"} {formatBRL(Math.abs(delta))}
                           </td>
                           <td className="py-1 text-right font-mono tabular-nums text-strong">
                             {formatBRL(running)}
@@ -666,17 +758,35 @@ export default async function ConciliacaoPage({
                         </tr>
                       )
                     })}
-                    <tr className="bg-subtle">
-                      <td
-                        className="py-1.5 text-[10px] font-semibold uppercase tracking-wider text-strong"
-                        colSpan={3}
-                      >
-                        Saldo final
-                      </td>
-                      <td className="py-1.5 text-right font-mono font-semibold tabular-nums text-strong">
-                        {formatBRL(r.endBalance)}
-                      </td>
-                    </tr>
+                    {(() => {
+                      const delta = r.endBalance - r.startBalance
+                      const color =
+                        delta > 0
+                          ? "text-income"
+                          : delta < 0
+                            ? "text-expense"
+                            : "text-strong"
+                      const Icon =
+                        delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : null
+                      return (
+                        <tr className="bg-subtle">
+                          <td
+                            className="py-1.5 text-[10px] font-semibold uppercase tracking-wider text-strong"
+                            colSpan={3}
+                          >
+                            Saldo final
+                          </td>
+                          <td
+                            className={`py-1.5 text-right font-mono font-semibold tabular-nums ${color}`}
+                          >
+                            <span className="inline-flex items-center justify-end gap-1.5">
+                              {Icon && <Icon className="h-3.5 w-3.5" />}
+                              {formatBRL(r.endBalance)}
+                            </span>
+                          </td>
+                        </tr>
+                      )
+                    })()}
                   </tbody>
                 </table>
               )}
