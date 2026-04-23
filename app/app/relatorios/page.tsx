@@ -37,6 +37,14 @@ const REPORTS = [
     icon: Scale,
     status: "disponível",
   },
+  {
+    href: "/app/relatorios/dre",
+    title: "DRE · Demonstração de Resultado",
+    description:
+      "Performance do período: Receitas − Despesas = Resultado. Rendimentos do trabalho e capital separados, despesas por categoria. Complementa o Balanço (retrato) mostrando o filme do período. Exporta PDF e XLSX.",
+    icon: FileBarChart,
+    status: "disponível",
+  },
 ] as const
 
 export default function RelatoriosPage() {
