@@ -710,46 +710,55 @@ export default async function ConciliacaoPage({
                     </tr>
                   </thead>
                   <tbody>
-                    {r.within.map((t) => {
-                      const delta =
-                        t.type === "income" ? t.amount_cents : -t.amount_cents
-                      running += delta
-                      const isIncome = delta >= 0
-                      return (
-                        <tr key={t.id} className="border-b border-border/50">
-                          <td className="py-1 text-body">
-                            {formatPtBrDateShort(t.occurred_on)}
-                          </td>
-                          <td className="py-1 text-body">
-                            <span className="inline-flex items-center gap-1.5">
-                              {t.is_transfer ? (
-                                <ArrowLeftRight className="h-3 w-3 text-muted" />
-                              ) : isIncome ? (
-                                <ArrowUp className="h-3 w-3 text-income" />
-                              ) : (
-                                <ArrowDown className="h-3 w-3 text-expense" />
-                              )}
-                              {t.merchant ?? "(sem descrição)"}
-                              {t.is_transfer && (
-                                <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
-                                  transf.
-                                </span>
-                              )}
-                            </span>
-                          </td>
-                          <td
-                            className={`py-1 text-right font-mono tabular-nums ${
-                              isIncome ? "text-income" : "text-expense"
-                            }`}
-                          >
-                            {isIncome ? "+" : "−"} {formatBRL(Math.abs(delta))}
-                          </td>
-                          <td className="py-1 text-right font-mono tabular-nums text-strong">
-                            {formatBRL(running)}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {(() => {
+                      // Pré-calcula running balance em ordem cronológica
+                      // asc, mas renderiza em ordem desc (mais recente em
+                      // cima) — cada linha mostra o saldo NAQUELE ponto
+                      // do tempo, preservando a conta correta.
+                      const withRunning = r.within.map((t) => {
+                        const delta =
+                          t.type === "income" ? t.amount_cents : -t.amount_cents
+                        running += delta
+                        return { t, delta, runningAt: running }
+                      })
+                      return [...withRunning].reverse().map(({ t, delta, runningAt }) => {
+                        const isIncome = delta >= 0
+                        return (
+                          <tr key={t.id} className="border-b border-border/50">
+                            <td className="py-1 text-body">
+                              {formatPtBrDateShort(t.occurred_on)}
+                            </td>
+                            <td className="py-1 text-body">
+                              <span className="inline-flex items-center gap-1.5">
+                                {t.is_transfer ? (
+                                  <ArrowLeftRight className="h-3 w-3 text-muted" />
+                                ) : isIncome ? (
+                                  <ArrowUp className="h-3 w-3 text-income" />
+                                ) : (
+                                  <ArrowDown className="h-3 w-3 text-expense" />
+                                )}
+                                {t.merchant ?? "(sem descrição)"}
+                                {t.is_transfer && (
+                                  <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
+                                    transf.
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td
+                              className={`py-1 text-right font-mono tabular-nums ${
+                                isIncome ? "text-income" : "text-expense"
+                              }`}
+                            >
+                              {isIncome ? "+" : "−"} {formatBRL(Math.abs(delta))}
+                            </td>
+                            <td className="py-1 text-right font-mono tabular-nums text-strong">
+                              {formatBRL(runningAt)}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    })()}
                     {(() => {
                       const delta = r.endBalance - r.startBalance
                       const color =
