@@ -12,6 +12,7 @@ import {
   AdjustmentActions,
   type Adjustment,
 } from "./_components/AdjustmentForm"
+import { BalancoAIInsight } from "./_components/BalancoAIInsight"
 import { AddRegistryButton } from "./_components/RegistryForm"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
 
@@ -494,6 +495,91 @@ export default async function BalancoPage({
   // Patrimônio líquido = Ativo - Passivo (equação fundamental do BP)
   const patrimonioLiquido = ativoTotal - passivoTotal
   const balanced = ativoTotal === passivoTotal + patrimonioLiquido
+
+  // Snapshot compacto pra IA — valores em reais (não centavos) pra
+  // ficar legível no prompt sem a IA precisar dividir.
+  const toReais = (c: number) => Math.round(c) / 100
+  const bucketToAi = (b?: {
+    lines: { accountName: string; cents: number }[]
+  }) =>
+    (b?.lines ?? []).map((l) => ({
+      nome: l.accountName,
+      valor: toReais(l.cents),
+    }))
+  const adjsToAi = (section: string) =>
+    (adjustmentsBySection.get(section) ?? []).map((a) => ({
+      descricao: a.label,
+      valor: toReais(a.amount_cents),
+    }))
+  const aiSnapshot = {
+    periodo: period.label,
+    data_posicao: snapshotDate,
+    ativo: {
+      total: toReais(ativoTotal),
+      circulante: {
+        total: toReais(ativoCirculanteTotal),
+        disponibilidades: {
+          total: toReais(ativoCirculanteDisponivelTotal),
+          contas: bucketToAi(ativoCirculanteDisponivel),
+          ajustes: [
+            ...adjsToAi("ativo_circulante_disponivel"),
+            ...adjsToAi("ativo_circulante_outros"),
+          ],
+        },
+        renda_fixa: {
+          total: toReais(ativoCirculanteRendaFixaTotal),
+          contas: bucketToAi(ativoCirculanteRendaFixa),
+          ajustes: adjsToAi("ativo_circulante_renda_fixa"),
+        },
+        renda_variavel: {
+          total: toReais(ativoCirculanteRendaVarTotal),
+          contas: bucketToAi(ativoCirculanteRendaVar),
+          ajustes: adjsToAi("ativo_circulante_renda_variavel"),
+        },
+        cripto: {
+          total: toReais(ativoCirculanteCriptoTotal),
+          contas: bucketToAi(ativoCirculanteCripto),
+          ajustes: adjsToAi("ativo_circulante_cripto"),
+        },
+      },
+      nao_circulante: {
+        total: toReais(ativoNCTotal),
+        bloqueado_fgts: {
+          total: toReais(ativoNCBloqueadoTotal),
+          contas: bucketToAi(ativoNCBloqueado),
+        },
+        imobilizado: {
+          total: toReais(ativoNCImobilizadoTotal),
+          itens: adjsToAi("ativo_nc_imobilizado"),
+        },
+        intangivel: {
+          total: toReais(ativoNCIntangivelTotal),
+          itens: adjsToAi("ativo_nc_intangivel"),
+        },
+      },
+    },
+    passivo: {
+      total: toReais(passivoTotal),
+      circulante: {
+        total: toReais(passivoCirculanteTotal),
+        cartoes: {
+          total: toReais(passivoCartoes?.total ?? 0),
+          faturas: bucketToAi(passivoCartoes),
+        },
+        agendadas_vencidas: overdueLiabilities.map((l) => ({
+          descricao: l.label,
+          vencimento: l.dueDate,
+          valor: toReais(l.cents),
+        })),
+        outros: adjsToAi("passivo_circulante_outros"),
+      },
+      nao_circulante: {
+        total: toReais(passivoNCTotal),
+        financiamentos: adjsToAi("passivo_nc_financiamentos"),
+      },
+    },
+    patrimonio_liquido: toReais(patrimonioLiquido),
+  }
 
   const displayName =
     (profileRaw as { display_name?: string | null } | null)?.display_name ??
@@ -982,6 +1068,10 @@ export default async function BalancoPage({
           no Balanço de abril, o fluxo mostra como chegou até X.
         </p>
       </section>
+
+      <div className="no-print">
+        <BalancoAIInsight snapshot={aiSnapshot} />
+      </div>
 
       {registries.length > 0 && (
         <section className="avoid-break space-y-2 rounded-xl border border-border p-4">
