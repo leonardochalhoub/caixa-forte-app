@@ -234,23 +234,35 @@ Nubank Conta (~R$1.200), Nubank Renda Fixa (~R$6.000), Nubank Cripto (~R$1.500),
     note("accounts", `${accs?.length ?? 0} inseridas`)
 
     // --- CATEGORIES ---
-    const catSys = `Gerador de categorias. JSON { "categories": [...] }. Cada: { name, emoji, kind, sort_order }. kind: expense | income.`
-    const catUser = `11 categorias: 8 expense (Moradia, Alimentação, Transporte, Saúde, Lazer, Mercado, Assinaturas, Cuidados Pessoais) + 3 income (Salário, Freelance, Rendimentos).`
+    // Schema: { name, icon (emoji ok), is_income: boolean, sort_order }
+    const catSys = `Gerador de categorias de finanças pessoais. JSON { "categories": [...] }.
+Cada: { name, icon, is_income, is_formal_income, sort_order }.
+icon = 1 emoji (string curta).
+is_income = true pra receitas, false pra despesas.
+is_formal_income = true pra rendas do trabalho (salário, freelance); false pra capital (rendimentos, dividendos) e pra TODAS as despesas.`
+    const catUser = `11 categorias pra jovem adulta brasileira:
+8 despesas (is_income=false, is_formal_income=false):
+Moradia, Alimentação, Transporte, Saúde, Lazer, Mercado, Assinaturas, Cuidados Pessoais.
+3 receitas:
+- Salário (is_income=true, is_formal_income=true)
+- Freelance (is_income=true, is_formal_income=true)
+- Rendimentos (is_income=true, is_formal_income=false — é capital)`
     const rawCats = ((await callGroq(catSys, catUser)).categories as unknown[]) ?? []
     const catsPayload = rawCats.map((raw, i) => {
       const c = raw as Record<string, unknown>
       return {
         user_id: userId,
         name: String(c.name ?? `Cat ${i}`),
-        emoji: String(c.emoji ?? "💰"),
-        kind: (c.kind as string) === "income" ? "income" : "expense",
+        icon: String((c.icon as string) ?? (c.emoji as string) ?? "💰"),
+        is_income: c.is_income === true,
+        is_formal_income: c.is_formal_income === true,
         sort_order: Number(c.sort_order ?? i),
       }
     })
     const { data: cats, error: catErr } = await sb
       .from("categories")
       .insert(catsPayload)
-      .select("id, name, kind")
+      .select("id, name, is_income")
     if (catErr) throw new Error(`categories: ${catErr.message}`)
     note("categories", `${cats?.length ?? 0} inseridas`)
 
@@ -259,7 +271,7 @@ Nubank Conta (~R$1.200), Nubank Renda Fixa (~R$6.000), Nubank Cripto (~R$1.500),
       .map((a) => `- ${a.name} (${a.type}, id: ${a.id})`)
       .join("\n")
     const catList = (cats ?? [])
-      .map((c) => `- ${c.name} (${c.kind}, id: ${c.id})`)
+      .map((c) => `- ${c.name} (${c.is_income ? "income" : "expense"}, id: ${c.id})`)
       .join("\n")
     const chunks = chunksForRange(range)
     note("range", `${range} → ${chunks.length} chunks`)
