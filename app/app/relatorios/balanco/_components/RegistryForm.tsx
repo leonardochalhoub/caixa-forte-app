@@ -24,7 +24,10 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
 import { parseBRLToCents } from "@/lib/money"
-import { createBalanceRegistryAction } from "../actions"
+
+type CreateRegistryResponse =
+  | { ok: true; id: string }
+  | { ok: false; error: string }
 
 type SuggestResponse =
   | {
@@ -266,17 +269,28 @@ export function AddRegistryButton({ period }: { period: string }) {
     }
     start(async () => {
       try {
-        const r = await createBalanceRegistryAction({
-          period,
-          kind: kind.key,
-          description: description.trim(),
-          amountCents: cents,
-          debitSection,
-          debitLabel: debitLabel.trim(),
-          creditSection,
-          creditLabel: creditLabel.trim(),
-          note: note.trim() || null,
+        const res = await fetch("/api/balance-registry/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            period,
+            kind: kind.key,
+            description: description.trim(),
+            amountCents: cents,
+            debitSection,
+            debitLabel: debitLabel.trim(),
+            creditSection,
+            creditLabel: creditLabel.trim(),
+            note: note.trim() || null,
+          }),
         })
+        const r = (await res.json().catch(() => null)) as
+          | CreateRegistryResponse
+          | null
+        if (!r) {
+          toast.error(`Falha: resposta inválida (HTTP ${res.status}).`)
+          return
+        }
         if (!r.ok) {
           toast.error(r.error)
           return
