@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Banknote,
   Bitcoin,
+  CreditCard,
   Landmark,
   LineChart,
   PiggyBank,
@@ -31,11 +32,13 @@ export interface KpiOverviewProps {
   investmentCents: number
   cryptoCents: number
   fgtsCents: number
+  creditCents: number
   liquidAccounts: BreakdownAccount[]
   savingsAccounts: BreakdownAccount[]
   investmentAccounts: BreakdownAccount[]
   cryptoAccounts: BreakdownAccount[]
   fgtsAccounts: BreakdownAccount[]
+  creditAccounts: BreakdownAccount[]
   // Optional right-rail content that sits beside "Saldo total agora".
   heroAside?: React.ReactNode
   // Short AI-generated sentences explaining each time-window's verdict.
@@ -54,11 +57,13 @@ export function KpiOverview({
   investmentCents,
   cryptoCents,
   fgtsCents,
+  creditCents,
   liquidAccounts,
   savingsAccounts,
   investmentAccounts,
   cryptoAccounts,
   fgtsAccounts,
+  creditAccounts,
   heroAside,
   trendExplanations,
 }: KpiOverviewProps) {
@@ -83,11 +88,13 @@ export function KpiOverview({
         investmentCents={investmentCents}
         cryptoCents={cryptoCents}
         fgtsCents={fgtsCents}
+        creditCents={creditCents}
         liquidAccounts={liquidAccounts}
         savingsAccounts={savingsAccounts}
         investmentAccounts={investmentAccounts}
         cryptoAccounts={cryptoAccounts}
         fgtsAccounts={fgtsAccounts}
+        creditAccounts={creditAccounts}
         monthLabel={current.label}
         monthNetCents={current.netCents}
         incomeCents={current.incomeCents}
@@ -142,11 +149,13 @@ function HeroBalance({
   investmentCents,
   cryptoCents,
   fgtsCents,
+  creditCents,
   liquidAccounts,
   savingsAccounts,
   investmentAccounts,
   cryptoAccounts,
   fgtsAccounts,
+  creditAccounts,
   monthLabel,
   monthNetCents,
   incomeCents,
@@ -161,11 +170,13 @@ function HeroBalance({
   investmentCents: number
   cryptoCents: number
   fgtsCents: number
+  creditCents: number
   liquidAccounts: BreakdownAccount[]
   savingsAccounts: BreakdownAccount[]
   investmentAccounts: BreakdownAccount[]
   cryptoAccounts: BreakdownAccount[]
   fgtsAccounts: BreakdownAccount[]
+  creditAccounts: BreakdownAccount[]
   monthLabel: string
   monthNetCents: number
   incomeCents: number
@@ -254,7 +265,7 @@ function HeroBalance({
           {aside && <div className="min-w-0">{aside}</div>}
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <BreakdownPanel
             icon={<Banknote className="h-3 w-3" />}
             title="Conta Corrente"
@@ -284,6 +295,15 @@ function HeroBalance({
             totalCents={cryptoCents}
             emptyHint="Bitcoin, ETH, outras"
             dashed
+          />
+          <BreakdownPanel
+            icon={<CreditCard className="h-3 w-3" />}
+            title="Cartão de Crédito"
+            accounts={creditAccounts}
+            totalCents={creditCents}
+            emptyHint="Ainda sem cartões"
+            dashed
+            footnote={creditCents < 0 ? "dívida em aberto" : undefined}
           />
           <BreakdownPanel
             icon={<PiggyBank className="h-3 w-3" />}

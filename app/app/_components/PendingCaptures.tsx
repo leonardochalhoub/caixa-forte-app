@@ -9,10 +9,13 @@ import { formatPtBrDateShort } from "@/lib/time"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import type { AccountType } from "@/lib/types"
 import {
   resolvePendingCaptureAction,
   discardPendingCaptureAction,
@@ -35,7 +38,7 @@ interface PendingCapture {
 
 interface Props {
   captures: PendingCapture[]
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type: AccountType }[]
 }
 
 export function PendingCaptures({ captures, accounts }: Props) {
@@ -66,8 +69,10 @@ function PendingRow({
   accounts,
 }: {
   capture: PendingCapture
-  accounts: { id: string; name: string }[]
+  accounts: { id: string; name: string; type: AccountType }[]
 }) {
+  const creditAccounts = accounts.filter((a) => a.type === "credit")
+  const otherAccounts = accounts.filter((a) => a.type !== "credit")
   const [accountId, setAccountId] = useState<string>("")
   const [pending, start] = useTransition()
   const { parsed } = capture
@@ -146,11 +151,26 @@ function PendingRow({
             <SelectValue placeholder="Escolha a conta" />
           </SelectTrigger>
           <SelectContent>
-            {accounts.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.name}
-              </SelectItem>
-            ))}
+            {otherAccounts.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Contas</SelectLabel>
+                {otherAccounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {creditAccounts.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Cartões de crédito</SelectLabel>
+                {creditAccounts.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
           </SelectContent>
         </Select>
         <Button

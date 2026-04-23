@@ -92,16 +92,53 @@ export default async function DashboardPage() {
       .map((c) => c.id),
   )
 
+  // Pending captures (no_account) are real spending that hasn't been
+  // allocated yet. We synthesize them as virtual transactions so the
+  // monthly KPIs and the hero total reflect them right away — even though
+  // they're not on any account. Assigning an account later just moves the
+  // number from "pending" to a real account without double-counting.
+  const pendingVirtualTx = (pendingCaptures ?? [])
+    .map((c) => c.groq_parse_json as {
+      amount_cents?: number
+      type?: "income" | "expense"
+      occurred_on?: string
+    } | null)
+    .filter(
+      (p): p is {
+        amount_cents: number
+        type: "income" | "expense"
+        occurred_on: string
+      } =>
+        !!p &&
+        typeof p.amount_cents === "number" &&
+        (p.type === "income" || p.type === "expense") &&
+        typeof p.occurred_on === "string",
+    )
+
   const monthly = bucketizeTransactions(
-    (monthTx ?? []).map((t) => ({
-      occurred_on: t.occurred_on,
-      type: t.type as "income" | "expense",
-      amount_cents: Number(t.amount_cents),
-      category_id: t.category_id,
-      is_transfer: t.is_transfer ?? false,
-    })),
+    [
+      ...(monthTx ?? []).map((t) => ({
+        occurred_on: t.occurred_on,
+        type: t.type as "income" | "expense",
+        amount_cents: Number(t.amount_cents),
+        category_id: t.category_id,
+        is_transfer: t.is_transfer ?? false,
+      })),
+      ...pendingVirtualTx.map((p) => ({
+        occurred_on: p.occurred_on,
+        type: p.type,
+        amount_cents: p.amount_cents,
+        category_id: null,
+        is_transfer: false,
+      })),
+    ],
     slots,
     formalIncomeIds,
+  )
+
+  const pendingNetCents = pendingVirtualTx.reduce(
+    (s, p) => s + (p.type === "income" ? p.amount_cents : -p.amount_cents),
+    0,
   )
 
   const flowByAccount = new Map<string, number>()
@@ -123,21 +160,34 @@ export default async function DashboardPage() {
   const investmentAccounts = accountsWithBalance.filter((a) => a.type === "investment")
   const cryptoAccounts = accountsWithBalance.filter((a) => a.type === "crypto")
   const fgtsAccounts = accountsWithBalance.filter((a) => a.type === "fgts")
+  const creditAccounts = accountsWithBalance.filter((a) => a.type === "credit")
   const liquidAccounts = accountsWithBalance.filter(
     (a) =>
       a.type !== "savings" &&
       a.type !== "poupanca" &&
       a.type !== "investment" &&
       a.type !== "crypto" &&
-      a.type !== "fgts",
+      a.type !== "fgts" &&
+      a.type !== "credit",
   )
   const savingsCents = savingsAccounts.reduce((s, a) => s + a.balanceCents, 0)
   const investmentCents = investmentAccounts.reduce((s, a) => s + a.balanceCents, 0)
   const cryptoCents = cryptoAccounts.reduce((s, a) => s + a.balanceCents, 0)
   const fgtsCents = fgtsAccounts.reduce((s, a) => s + a.balanceCents, 0)
   const liquidCents = liquidAccounts.reduce((s, a) => s + a.balanceCents, 0)
+  // Credit card balance = running debt (negative when you owe). Subtracted
+  // from the "liquid + savings + investments" net worth.
+  const creditCents = creditAccounts.reduce((s, a) => s + a.balanceCents, 0)
   // FGTS is intentionally EXCLUDED from the total — locked funds.
-  const totalBalanceCents = liquidCents + savingsCents + investmentCents + cryptoCents
+  // Pending captures reduce the projected total since the money is
+  // already gone, we just haven't tagged the account yet.
+  const totalBalanceCents =
+    liquidCents +
+    savingsCents +
+    investmentCents +
+    cryptoCents +
+    creditCents +
+    pendingNetCents
 
   const upcomingNet = (upcomingTx ?? []).reduce(
     (sum, t) =>
@@ -200,6 +250,27 @@ export default async function DashboardPage() {
     <div className="space-y-8">
       <QuickCapture hasGroqKey={hasGroqKey} hasAccounts={hasAccounts} />
 
+      <KpiOverview
+        heroAside={
+          <ClockWeather cityName={cityName} uf={uf} coords={coords} compact />
+        }
+        trendExplanations={trendExplanations}
+        last12={monthly}
+        totalBalanceCents={totalBalanceCents}
+        liquidCents={liquidCents}
+        savingsCents={savingsCents}
+        investmentCents={investmentCents}
+        cryptoCents={cryptoCents}
+        fgtsCents={fgtsCents}
+        creditCents={creditCents}
+        liquidAccounts={liquidAccounts}
+        savingsAccounts={savingsAccounts}
+        investmentAccounts={investmentAccounts}
+        cryptoAccounts={cryptoAccounts}
+        fgtsAccounts={fgtsAccounts}
+        creditAccounts={creditAccounts}
+      />
+
       <PendingCaptures
         captures={(pendingCaptures ?? [])
           .filter((c) => {
@@ -230,26 +301,11 @@ export default async function DashboardPage() {
               },
             }
           })}
-        accounts={accountsWithBalance.map((a) => ({ id: a.id, name: a.name }))}
-      />
-
-      <KpiOverview
-        heroAside={
-          <ClockWeather cityName={cityName} uf={uf} coords={coords} compact />
-        }
-        trendExplanations={trendExplanations}
-        last12={monthly}
-        totalBalanceCents={totalBalanceCents}
-        liquidCents={liquidCents}
-        savingsCents={savingsCents}
-        investmentCents={investmentCents}
-        cryptoCents={cryptoCents}
-        fgtsCents={fgtsCents}
-        liquidAccounts={liquidAccounts}
-        savingsAccounts={savingsAccounts}
-        investmentAccounts={investmentAccounts}
-        cryptoAccounts={cryptoAccounts}
-        fgtsAccounts={fgtsAccounts}
+        accounts={accountsWithBalance.map((a) => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+        }))}
       />
 
       {(upcomingTx ?? []).length > 0 && (

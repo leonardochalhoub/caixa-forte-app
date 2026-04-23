@@ -7,7 +7,9 @@ import { cn } from "@/lib/utils"
 const BASE_NAV = [
   { href: "/app", label: "Início" },
   { href: "/app/contas", label: "Contas" },
+  { href: "/app/cartoes", label: "Cartões" },
   { href: "/app/categorias", label: "Categorias" },
+  { href: "/app/relatorios", label: "Relatórios" },
 ] as const
 
 export function AppNav({ showSysadmin = false }: { showSysadmin?: boolean }) {
