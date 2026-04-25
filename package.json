@@ -14,7 +14,8 @@
     "test:e2e": "playwright test",
     "db:types": "supabase gen types typescript --local > lib/supabase/database.types.ts",
     "db:reset": "supabase db reset",
-    "db:push": "supabase db push"
+    "db:push": "supabase db push",
+    "db:apply-pending": "node scripts/apply-pending.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.4",
