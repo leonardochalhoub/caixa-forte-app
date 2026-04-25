@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { formatBRL } from "@/lib/money"
 import { formatPtBrDateShort } from "@/lib/time"
 import { CardsManager } from "./_components/CardsManager"
+import { ClosingDayEditor } from "./_components/ClosingDayEditor"
 
 const MONTH_NAMES_PT = [
   "Janeiro",
@@ -270,20 +271,24 @@ export default async function CartoesPage() {
       ) : (
         <div className="space-y-6">
           {(cardInvoices as Array<{
-            card: { id: string; name: string }
+            card: { id: string; name: string; closing_day?: number | null }
             invoices: Array<Parameters<typeof InvoiceRow>[0]["invoice"]>
             openDebtCents: number
           }>).map(({ card, invoices, openDebtCents }) => (
             <Card key={card.id}>
               <CardContent className="space-y-4 p-5">
                 <div className="flex items-baseline justify-between gap-3">
-                  <div>
+                  <div className="space-y-1">
                     <h2 className="text-base font-medium text-strong">{card.name}</h2>
                     <p className="text-xs text-muted">
                       {openDebtCents > 0
                         ? "Dívida em aberto (todas as faturas não pagas)"
                         : "Todas as faturas em dia"}
                     </p>
+                    <ClosingDayEditor
+                      cardId={card.id}
+                      closingDay={card.closing_day ?? null}
+                    />
                   </div>
                   <p
                     className={`font-mono text-2xl font-semibold tabular-nums ${

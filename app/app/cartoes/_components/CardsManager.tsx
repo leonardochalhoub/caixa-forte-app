@@ -23,17 +23,28 @@ export function CardsManager({
   const [open, setOpen] = useState(false)
   const [bank, setBank] = useState("")
   const [nickname, setNickname] = useState("")
+  const [closingDay, setClosingDay] = useState("20")
   const [pending, start] = useTransition()
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!bank.trim()) return
+    const day = Number(closingDay)
+    if (!Number.isFinite(day) || day < 1 || day > 31) {
+      toast.error("Dia de fechamento deve ser entre 1 e 31.")
+      return
+    }
     start(async () => {
       try {
-        await createCreditCardAction({ bank, nickname: nickname || undefined })
+        await createCreditCardAction({
+          bank,
+          nickname: nickname || undefined,
+          closingDay: day,
+        })
         toast.success("Cartão criado.")
         setBank("")
         setNickname("")
+        setClosingDay("20")
         setOpen(false)
       } catch (err) {
         toast.error((err as Error).message)
@@ -75,6 +86,23 @@ export function CardsManager({
                 onChange={(e) => setNickname(e.target.value)}
                 placeholder="Ex: Platinum, Infinite"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="card-closing">Dia do fechamento</Label>
+              <Input
+                id="card-closing"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={31}
+                value={closingDay}
+                onChange={(e) => setClosingDay(e.target.value)}
+                required
+              />
+              <p className="text-[11px] leading-snug text-muted">
+                Compras feitas até esse dia caem na fatura do mês. Depois,
+                vão pra fatura do mês seguinte. Padrão: 20.
+              </p>
             </div>
             {checkingAccounts.length === 0 && (
               <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 text-xs text-body">

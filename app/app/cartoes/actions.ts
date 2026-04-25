@@ -9,6 +9,7 @@ import { untyped } from "@/lib/supabase/untyped"
 const CreateCardSchema = z.object({
   bank: z.string().trim().min(1).max(60),
   nickname: z.string().trim().max(60).optional(),
+  closingDay: z.number().int().min(1).max(31).optional(),
 })
 
 export async function createCreditCardAction(
@@ -20,13 +21,14 @@ export async function createCreditCardAction(
   const name = parsed.nickname?.trim()
     ? `${parsed.bank} Cartão ${parsed.nickname.trim()}`
     : `${parsed.bank} Cartão`
-  const { data, error } = await supabase
+  const { data, error } = await untyped(supabase)
     .from("accounts")
     .insert({
       user_id: user.id,
       name,
       type: "credit",
       opening_balance_cents: 0,
+      closing_day: parsed.closingDay ?? 20,
     })
     .select("id")
     .single()
@@ -35,6 +37,29 @@ export async function createCreditCardAction(
   revalidatePath("/app/contas")
   revalidatePath("/app")
   return data
+}
+
+const UpdateClosingDaySchema = z.object({
+  cardId: z.string().uuid(),
+  closingDay: z.number().int().min(1).max(31),
+})
+
+export async function updateClosingDayAction(
+  input: z.infer<typeof UpdateClosingDaySchema>,
+) {
+  const user = await requireUser()
+  const parsed = UpdateClosingDaySchema.parse(input)
+  const supabase = await createServerClient()
+  const { error } = await untyped(supabase)
+    .from("accounts")
+    .update({ closing_day: parsed.closingDay })
+    .eq("id", parsed.cardId)
+    .eq("user_id", user.id)
+    .eq("type", "credit")
+  if (error) throw new Error(error.message)
+  revalidatePath("/app/cartoes")
+  revalidatePath("/app")
+  return { ok: true }
 }
 
 const PayInvoiceSchema = z.object({
