@@ -30,9 +30,9 @@ export default async function CartoesPage() {
   const user = await requireOnboardedUser()
   const supabase = await createServerClient()
 
-  const { data: cards } = await supabase
+  const { data: cards } = await untyped(supabase)
     .from("accounts")
-    .select("id, name, opening_balance_cents, created_at")
+    .select("id, name, opening_balance_cents, created_at, closing_day")
     .eq("user_id", user.id)
     .eq("type", "credit")
     .is("archived_at", null)
@@ -79,6 +79,49 @@ export default async function CartoesPage() {
     return normalize(cleaned.split(/\s+/)[0] ?? "")
   }
 
+  // Map de mês pt-BR (sem acento, lowercase) -> 1..12
+  const MONTHS_PT_LOWER = [
+    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+  ]
+
+  // Bucket de CHARGE itemized: respeita closing_day. Compra feita
+  // após o dia de fechamento entra na fatura do mês seguinte.
+  const chargeInvoiceMonth = (
+    occurredOn: string,
+    closingDay: number | null,
+  ): string => {
+    if (!closingDay) return occurredOn.slice(0, 7) // fallback: mês-calendário
+    const day = Number(occurredOn.slice(8, 10))
+    if (day <= closingDay) return occurredOn.slice(0, 7)
+    // Compra depois do fechamento → fatura do mês seguinte
+    const [yStr, mStr] = occurredOn.slice(0, 7).split("-")
+    const y = Number(yStr)
+    const m = Number(mStr)
+    const nextTotal = y * 12 + (m - 1) + 1
+    const ny = Math.floor(nextTotal / 12)
+    const nm = (nextTotal % 12) + 1
+    return `${ny}-${String(nm).padStart(2, "0")}`
+  }
+
+  // Bucket de LUMP-SUM: extrai o mês da fatura do merchant
+  // ("Caixa Cartão Abril 2026" → 2026-04). Se não conseguir parsear,
+  // cai pro mês-calendário do occurred_on.
+  const lumpSumInvoiceMonth = (
+    merchant: string | null,
+    occurredOn: string,
+  ): string => {
+    const m = normalize(merchant ?? "")
+    const yearMatch = m.match(/(20\d{2})/)
+    if (!yearMatch) return occurredOn.slice(0, 7)
+    for (let i = 0; i < 12; i++) {
+      if (m.includes(MONTHS_PT_LOWER[i]!)) {
+        return `${yearMatch[1]}-${String(i + 1).padStart(2, "0")}`
+      }
+    }
+    return occurredOn.slice(0, 7)
+  }
+
   type InvoiceCharge = {
     id: string
     amount_cents: number
@@ -89,8 +132,15 @@ export default async function CartoesPage() {
     accountName: string
   }
 
-  const cardInvoices = (cards ?? []).map((card) => {
+  const cardInvoices = (cards ?? []).map((card: {
+    id: string
+    name: string
+    opening_balance_cents: number | null
+    created_at: string
+    closing_day?: number | null
+  }) => {
     const bankKey = bankKeyOf(card.name)
+    const closingDay = card.closing_day ?? null
     // Separa em 2 grupos: tx no cartão (charges itemizados) e
     // lump-sums em OUTRAS contas cujo merchant contém "<banco> cartão".
     const charges = allTxs.filter(
@@ -127,7 +177,7 @@ export default async function CartoesPage() {
     }
 
     for (const t of charges) {
-      const key = t.occurred_on.slice(0, 7)
+      const key = chargeInvoiceMonth(t.occurred_on, closingDay)
       const b = ensure(key)
       b.itemized.push({
         id: t.id,
@@ -140,7 +190,7 @@ export default async function CartoesPage() {
       })
     }
     for (const t of lumpSums) {
-      const key = t.occurred_on.slice(0, 7)
+      const key = lumpSumInvoiceMonth(t.merchant, t.occurred_on)
       const b = ensure(key)
       b.lumpSumCents += Number(t.amount_cents)
       b.lumpSumEntries.push({
@@ -219,7 +269,11 @@ export default async function CartoesPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {cardInvoices.map(({ card, invoices, openDebtCents }) => (
+          {(cardInvoices as Array<{
+            card: { id: string; name: string }
+            invoices: Array<Parameters<typeof InvoiceRow>[0]["invoice"]>
+            openDebtCents: number
+          }>).map(({ card, invoices, openDebtCents }) => (
             <Card key={card.id}>
               <CardContent className="space-y-4 p-5">
                 <div className="flex items-baseline justify-between gap-3">
