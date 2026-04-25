@@ -6,6 +6,13 @@ import { getUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
 
+// Layout sensível à sessão: precisa renderizar a cada request pra não
+// servir HTML cacheado de uma sessão anterior (ex: usuário acabou de
+// entrar como demo da Larissa, clica /login e o layout precisa ler o
+// cookie atualizado pra decidir se mostra form ou redireciona).
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const user = await getUser()
   if (user) {
