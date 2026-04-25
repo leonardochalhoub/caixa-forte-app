@@ -51,6 +51,26 @@ export async function POST(
   const admin = createAdminClient()
   const db = untyped(admin)
 
+  // Idempotência primária: cada update do Telegram tem update_id único.
+  // INSERT com ON CONFLICT — se já gravamos esse update_id, é retry/duplicata
+  // (o próprio Telegram às vezes redelivera; usuário também pode estar
+  // reenviando). Bail-out sem processar de novo.
+  if (typeof update.update_id === "number") {
+    const { error: dedupErr } = await db
+      .from("telegram_processed_updates")
+      .insert({ update_id: update.update_id, chat_id: chatId })
+    if (dedupErr) {
+      // 23505 = unique_violation (Postgres) — chave duplicada, é retry.
+      const code = (dedupErr as { code?: string }).code
+      if (code === "23505") {
+        return NextResponse.json({ ok: true, deduped: true })
+      }
+      // Erro inesperado: log mas continua o processamento (não trava o app
+      // por causa de problema de housekeeping).
+      console.warn("telegram dedup insert failed", dedupErr)
+    }
+  }
+
   // /start TOKEN — bind this chat to the user who issued the token.
   const text = (msg.text ?? "").trim()
   if (text.startsWith("/start")) {

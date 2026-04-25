@@ -52,7 +52,7 @@ export async function loadUserContext(client: Client, userId: string) {
       .order("sort_order"),
     client
       .from("accounts")
-      .select("id, name")
+      .select("id, name, type")
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("sort_order"),
@@ -192,6 +192,11 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
   }
 
   const accountId = resolveAccountId(p.account_hint, accounts)
+  const resolvedAccount = accountId
+    ? accounts.find((a) => a.id === accountId)
+    : null
+  const isCreditAccount =
+    (resolvedAccount as { type?: string } | null)?.type === "credit"
 
   if (!accountId) {
     const { data: captureRow, error } = await client
@@ -223,11 +228,96 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
     }
   }
 
+  // Cartão de crédito: charge entra como dívida (paid_at=null) até a
+  // fatura ser paga. Outras contas: se occurred_on já passou, é caixa
+  // realizado (paid_at=hoje); futuro fica agendado.
   const today = new Date().toISOString().slice(0, 10)
-  const paidAt =
-    p.occurred_on <= today
+  const paidAt = isCreditAccount
+    ? null
+    : p.occurred_on <= today
       ? `${p.occurred_on}T12:00:00Z`
       : null
+
+  // Defesa secundária contra duplicação: se nos últimos 90s já existe tx
+  // com (user, conta, tipo, valor) iguais — independente de occurred_on
+  // e merchant — trata como duplicata. Cobre o caso real onde o usuário
+  // reenviou a mensagem por achar que falhou e o Groq parseou cada uma
+  // com data ou merchant diferente. Janela curta (90s) limita falso-
+  // positivo: duas tx legítimas iguais em < 90s é raro na vida real.
+  const dedupeWindowIso = new Date(Date.now() - 90_000).toISOString()
+  const dedupeQuery = (
+    client as unknown as {
+      from: (t: string) => {
+        select: (cols: string) => {
+          eq: (k: string, v: unknown) => {
+            eq: (k: string, v: unknown) => {
+              eq: (k: string, v: unknown) => {
+                eq: (k: string, v: unknown) => {
+                  gte: (k: string, v: string) => {
+                    order: (k: string, opts: object) => {
+                      limit: (n: number) => Promise<{
+                        data: Array<{ id: string }> | null
+                      }>
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  )
+    .from("transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("account_id", accountId)
+    .eq("type", p.type)
+    .eq("amount_cents", p.amount_cents)
+    .gte("created_at", dedupeWindowIso)
+    .order("created_at", { ascending: false })
+    .limit(1)
+  const { data: dupCandidates } = await dedupeQuery
+  const merchantMatch = (dupCandidates ?? [])[0] ?? null
+  if (merchantMatch) {
+    // Tx idêntica acabou de ser criada — registra o capture apontando pra
+    // ela e devolve sucesso (sem inserir duplicata).
+    const { data: capDup, error: capDupErr } = await client
+      .from("capture_messages")
+      .insert({
+        user_id: userId,
+        channel,
+        raw_input: args.rawInput,
+        transcription: args.transcription,
+        groq_parse_json: p as unknown as never,
+        groq_confidence: p.confidence,
+        transaction_id: merchantMatch.id,
+        duration_ms: args.durationMs,
+        model: args.model,
+        metadata: {
+          resolved: { category_id: categoryId, account_id: accountId },
+          hint: p.account_hint,
+          deduped: { window_seconds: 90, matched_tx: merchantMatch.id },
+        },
+      })
+      .select("id")
+      .single()
+    if (capDupErr) throw new Error(capDupErr.message)
+    return {
+      ok: true,
+      transactionId: merchantMatch.id,
+      captureId: capDup.id,
+      parsed: {
+        amountCents: p.amount_cents,
+        type: p.type,
+        categoryName: p.category_name,
+        subcategoryName: p.subcategory_name,
+        merchant: p.merchant,
+        occurredOn: p.occurred_on,
+        confidence: p.confidence,
+      },
+    }
+  }
 
   const { data: tx, error: txErr } = await (
     client as unknown as {
