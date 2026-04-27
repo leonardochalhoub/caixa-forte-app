@@ -15,6 +15,7 @@ import { BalancoAIInsight } from "./_components/BalancoAIInsight"
 import { AddRegistryButton } from "./_components/RegistryForm"
 import { type FipeMetadata } from "@/lib/fipe"
 import { autoSyncFipeForPeriod } from "@/lib/reports/balanco-fipe-sync"
+import { bankKeyOfCard, normalizeMerchant } from "@/lib/invoices/bucket"
 
 import { MONTH_NAMES_PT } from "@/lib/time"
 import {
@@ -158,12 +159,9 @@ export default async function BalancoPage({
   const accs = (accounts ?? []) as AccountRow[]
   const txs = (txsRaw ?? []) as Tx[]
 
-  const normalizeStr = (s: string) =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-  const bankKeyOf = (name: string): string => {
-    const cleaned = name.replace(/cart[ãa]o.*/i, "").trim()
-    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
-  }
+  // Helpers de string-match — aliases dos canônicos de @/lib/invoices/bucket.
+  const normalizeStr = normalizeMerchant
+  const bankKeyOf = bankKeyOfCard
 
   // Saldo por conta na data do snapshot.
   // Não-cartão: só paid_at !== null e paid_at <= snapshot (caixa real).
