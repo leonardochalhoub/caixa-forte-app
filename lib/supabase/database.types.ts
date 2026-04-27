@@ -625,6 +625,7 @@ export type Database = {
           groq_confidence: number | null
           groq_parse_json: Json | null
           id: string
+          is_settled: boolean | null
           is_transfer: boolean
           merchant: string | null
           needs_review: boolean | null
@@ -647,6 +648,7 @@ export type Database = {
           groq_confidence?: number | null
           groq_parse_json?: Json | null
           id?: string
+          is_settled?: boolean | null
           is_transfer?: boolean
           merchant?: string | null
           needs_review?: boolean | null
@@ -669,6 +671,7 @@ export type Database = {
           groq_confidence?: number | null
           groq_parse_json?: Json | null
           id?: string
+          is_settled?: boolean | null
           is_transfer?: boolean
           merchant?: string | null
           needs_review?: boolean | null
