@@ -24,22 +24,6 @@ export default async function CartoesPage() {
   const user = await requireOnboardedUser()
   const supabase = await createServerClient()
 
-  const { data: cards } = await supabase
-    .from("accounts")
-    .select("id, name, opening_balance_cents, created_at, closing_day")
-    .eq("user_id", user.id)
-    .eq("type", "credit")
-    .is("archived_at", null)
-    .order("sort_order")
-
-  const { data: checkingAccounts } = await supabase
-    .from("accounts")
-    .select("id, name")
-    .eq("user_id", user.id)
-    .in("type", ["checking", "cash", "wallet"])
-    .is("archived_at", null)
-    .order("sort_order")
-
   type CardTx = {
     id: string
     account_id: string
@@ -52,26 +36,45 @@ export default async function CartoesPage() {
     tx_kind: "charge" | "invoice_payment" | "refund" | "fee" | "transfer" | null
     category_id: string | null
   }
-  // Busca TODAS as tx pra detectar tanto os charges itemizados (no
-  // cartão) quanto o lump-sum de fatura (em outra conta). Lump-sum
-  // serve de source-of-truth pra "total da fatura"; itemizados são
-  // breakdown.
-  const { data: txsRaw } = await supabase
-    .from("transactions")
-    .select(
-      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind, category_id",
-    )
-    .eq("user_id", user.id)
-    .order("occurred_on", { ascending: false })
-  const allTxs = (txsRaw ?? []) as CardTx[]
 
-  // Categorias pra renderizar label "Categoria > Subcategoria" em cada
-  // charge na invoice — ajuda o user a ver de relance que categorias
-  // estão nas compras (e identificar charges sem categoria pra editar).
-  const { data: catsRaw } = await supabase
-    .from("categories")
-    .select("id, name, parent_id")
-    .eq("user_id", user.id)
+  // 4 queries paralelas — antes eram sequenciais (4x RTT do Supabase).
+  // Busca TODAS as tx pra detectar tanto charges itemizados quanto o
+  // lump-sum de fatura em outra conta. Categorias entram pra label
+  // "Categoria > Subcategoria" em cada charge.
+  const [
+    { data: cards },
+    { data: checkingAccounts },
+    { data: txsRaw },
+    { data: catsRaw },
+  ] = await Promise.all([
+    supabase
+      .from("accounts")
+      .select("id, name, opening_balance_cents, created_at, closing_day")
+      .eq("user_id", user.id)
+      .eq("type", "credit")
+      .is("archived_at", null)
+      .order("sort_order"),
+    supabase
+      .from("accounts")
+      .select("id, name")
+      .eq("user_id", user.id)
+      .in("type", ["checking", "cash", "wallet"])
+      .is("archived_at", null)
+      .order("sort_order"),
+    supabase
+      .from("transactions")
+      .select(
+        "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind, category_id",
+      )
+      .eq("user_id", user.id)
+      .order("occurred_on", { ascending: false }),
+    supabase
+      .from("categories")
+      .select("id, name, parent_id")
+      .eq("user_id", user.id),
+  ])
+
+  const allTxs = (txsRaw ?? []) as CardTx[]
   const categoriesById = new Map(
     (catsRaw ?? []).map((c) => [c.id, c]),
   )
