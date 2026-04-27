@@ -11,6 +11,7 @@ import { formatBRL } from "@/lib/money"
 import { formatPtBrDateShort } from "@/lib/time"
 import { CardsManager } from "./_components/CardsManager"
 import { ClosingDayEditor } from "./_components/ClosingDayEditor"
+import { PayInvoiceButton } from "./_components/PayInvoiceButton"
 
 const MONTH_NAMES_PT = [
   "Janeiro",
@@ -308,7 +309,13 @@ export default async function CartoesPage() {
                 ) : (
                   <ul className="space-y-2">
                     {invoices.map((inv) => (
-                      <InvoiceRow key={inv.key} invoice={inv} />
+                      <InvoiceRow
+                        key={inv.key}
+                        invoice={inv}
+                        cardId={card.id}
+                        cardName={card.name}
+                        checkingAccounts={checkingAccounts ?? []}
+                      />
                     ))}
                   </ul>
                 )}
@@ -323,6 +330,9 @@ export default async function CartoesPage() {
 
 function InvoiceRow({
   invoice,
+  cardId,
+  cardName,
+  checkingAccounts,
 }: {
   invoice: {
     key: string
@@ -351,6 +361,9 @@ function InvoiceRow({
       accountName: string
     }[]
   }
+  cardId: string
+  cardName: string
+  checkingAccounts: { id: string; name: string }[]
 }) {
   const allEntries = [...invoice.lumpSumEntries, ...invoice.itemized]
   const allPaid = invoice.openCents === 0 && invoice.totalCents > 0
@@ -400,11 +413,23 @@ function InvoiceRow({
             {invoice.paidCents > 0 && ` · pago ${formatBRL(invoice.paidCents)}`}
           </p>
         </div>
-        <p
-          className={`font-mono text-base font-semibold tabular-nums ${status.className}`}
-        >
-          {status.label}
-        </p>
+        <div className="flex items-center gap-3">
+          <p
+            className={`font-mono text-base font-semibold tabular-nums ${status.className}`}
+          >
+            {status.label}
+          </p>
+          {invoice.openCents > 0 && (
+            <PayInvoiceButton
+              cardId={cardId}
+              cardName={cardName}
+              invoiceLabel={invoice.label}
+              invoiceKey={invoice.key}
+              amountCents={invoice.openCents}
+              checkingAccounts={checkingAccounts}
+            />
+          )}
+        </div>
       </div>
 
       {allEntries.length > 0 && (
