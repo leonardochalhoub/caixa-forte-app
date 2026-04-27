@@ -4,7 +4,6 @@ export const revalidate = 0
 import { Scale } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { formatBRL } from "@/lib/money"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { BalancoPeriodSelector } from "./_components/BalancoPeriodSelector"
@@ -58,7 +57,7 @@ export default async function BalancoPage({
     { data: profileRaw },
     { data: adjustmentsRaw },
   ] = await Promise.all([
-    untyped(supabase)
+    supabase
       .from("accounts")
       .select("id, name, type, opening_balance_cents, balance_classification")
       .eq("user_id", user.id)
@@ -67,25 +66,25 @@ export default async function BalancoPage({
     // as tx não pagas independente da data (source of truth alinhado
     // com /app/cartoes). Filtros por data acontecem no código que
     // de fato precisa deles (overdueLiabilities, FIPE, etc).
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select(
         "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer",
       )
       .eq("user_id", user.id),
-    untyped(supabase)
+    supabase
       .from("profiles")
       .select("display_name")
       .eq("user_id", user.id)
       .maybeSingle(),
-    untyped(supabase)
+    supabase
       .from("balance_adjustments")
       .select("id, period, line_key, label, amount_cents, note, metadata")
       .eq("user_id", user.id)
       .eq("period", periodStr),
   ])
 
-  const { data: registriesRaw } = await untyped(supabase)
+  const { data: registriesRaw } = await supabase
     .from("balance_registries")
     .select(
       "id, period, kind, description, amount_cents, debit_section, debit_label, credit_section, credit_label, note, created_at",
@@ -123,7 +122,7 @@ export default async function BalancoPage({
   // no período corrente selecionado, busca o preço atual e cria entry
   // pra este período. Idempotente: se já tem, não duplica.
   if (period.kind === "mensal") {
-    const { data: allFipeRaw } = await untyped(supabase)
+    const { data: allFipeRaw } = await supabase
       .from("balance_adjustments")
       .select("id, period, line_key, label, amount_cents, metadata")
       .eq("user_id", user.id)
@@ -136,7 +135,7 @@ export default async function BalancoPage({
       amount_cents: number
       metadata: FipeMetadata
     }
-    const allFipe = (allFipeRaw ?? []) as FipeAdj[]
+    const allFipe = (allFipeRaw ?? []) as unknown as FipeAdj[]
     // Pra cada (fipe_code, year_id), verifica se existe entrada no periodStr
     const existingInPeriod = new Set(
       adjustments
@@ -193,9 +192,9 @@ export default async function BalancoPage({
       }),
     )
     if (newInserts.length > 0) {
-      const { data: inserted } = await untyped(supabase)
+      const { data: inserted } = await supabase
         .from("balance_adjustments")
-        .insert(newInserts)
+        .insert(newInserts as never)
         .select("id, period, line_key, label, amount_cents, note")
       if (inserted) {
         for (const a of inserted as AdjRow[]) {
