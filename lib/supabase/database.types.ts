@@ -726,6 +726,7 @@ export type Database = {
       }
       seed_default_categories: { Args: { p_user: string }; Returns: undefined }
       unaccent: { Args: { "": string }; Returns: string }
+      void_transfer: { Args: { p_tx_id: string }; Returns: Json }
     }
     Enums: {
       [_ in never]: never

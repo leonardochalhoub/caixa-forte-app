@@ -4,7 +4,6 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 
 const CreateCardSchema = z.object({
   bank: z.string().trim().min(1).max(60),
@@ -21,7 +20,7 @@ export async function createCreditCardAction(
   const name = parsed.nickname?.trim()
     ? `${parsed.bank} Cartão ${parsed.nickname.trim()}`
     : `${parsed.bank} Cartão`
-  const { data, error } = await untyped(supabase)
+  const { data, error } = await supabase
     .from("accounts")
     .insert({
       user_id: user.id,
@@ -50,7 +49,7 @@ export async function updateClosingDayAction(
   const user = await requireUser()
   const parsed = UpdateClosingDaySchema.parse(input)
   const supabase = await createServerClient()
-  const { error } = await untyped(supabase)
+  const { error } = await supabase
     .from("accounts")
     .update({ closing_day: parsed.closingDay })
     .eq("id", parsed.cardId)
@@ -81,7 +80,7 @@ export async function payInvoiceAction(
   const parsed = PayInvoiceSchema.parse(input)
   const supabase = await createServerClient()
 
-  const { data, error } = await untyped(supabase).rpc("pay_invoice", {
+  const { data, error } = await supabase.rpc("pay_invoice", {
     p_card_id: parsed.cardId,
     p_source_account_id: parsed.sourceAccountId,
     p_amount_cents: parsed.amountCents,
@@ -120,7 +119,7 @@ export async function voidInvoicePaymentAction(
   const parsed = VoidInvoicePaymentSchema.parse(input)
   const supabase = await createServerClient()
 
-  const { data, error } = await untyped(supabase).rpc("void_transfer", {
+  const { data, error } = await supabase.rpc("void_transfer", {
     p_tx_id: parsed.txId,
   })
   if (error) throw new Error(`Falha ao desfazer pagamento: ${error.message}`)
