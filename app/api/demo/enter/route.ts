@@ -5,8 +5,8 @@ import { createServerClient } from "@/lib/supabase/server"
 export const dynamic = "force-dynamic"
 export const maxDuration = 10
 
-const DEMO_EMAIL = "larissa.demo@caixa-forte.app"
-const DEMO_PASSWORD = "DemoPublico#2026"
+const DEMO_EMAIL = process.env.DEMO_EMAIL ?? "larissa.demo@caixa-forte.app"
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD
 
 export async function GET(req: Request) {
   try {
@@ -33,6 +33,13 @@ export async function GET(req: Request) {
       await admin
         .from("demo_clicks")
         .insert({ user_agent: ua, referrer, ip_hash: ipHash })
+    }
+
+    if (!DEMO_PASSWORD) {
+      return NextResponse.redirect(
+        `${origin}/?demo_error=${encodeURIComponent("DEMO_PASSWORD não configurada no servidor")}`,
+        { status: 303 },
+      )
     }
 
     // Sign-in como Larissa: cria os cookies de auth dela nesse browser.
