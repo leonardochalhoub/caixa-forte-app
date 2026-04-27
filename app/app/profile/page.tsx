@@ -1,6 +1,5 @@
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { loadLifecycleEvents } from "./lifecycle"
 import { ProfileForm } from "./_components/ProfileForm"
 
@@ -25,7 +24,7 @@ export default async function ProfilePage() {
   }
   let extended: Extended | null = null
   try {
-    const locRes = await untyped(supabase)
+    const locRes = await supabase
       .from("profiles")
       .select("city_ibge, city_name, uf, gender, birthday")
       .eq("user_id", user.id)

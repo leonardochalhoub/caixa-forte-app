@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 import { captureAudio, captureText } from "@/lib/capture/pipeline"
 import {
   downloadFile,
@@ -49,7 +48,7 @@ export async function POST(
 
   const chatId = msg.chat.id
   const admin = createAdminClient()
-  const db = untyped(admin)
+  const db = admin
 
   // Idempotência primária: cada update do Telegram tem update_id único.
   // INSERT com ON CONFLICT — se já gravamos esse update_id, é retry/duplicata

@@ -3,7 +3,6 @@
 import { z } from "zod"
 import { getUser } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 // Fire-and-forget click logger. Public — anonymous landing-page clicks are
 // welcome (user_id stays NULL). Uses admin client so RLS is bypassed even
@@ -20,7 +19,7 @@ export async function trackDocClickAction(
     const parsed = TrackSchema.parse(input)
     const user = await getUser()
     const admin = createAdminClient()
-    await untyped(admin).from("doc_clicks").insert({
+    await admin.from("doc_clicks").insert({
       user_id: user?.id ?? null,
       source: parsed.source,
     })
