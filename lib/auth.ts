@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation"
 import { createServerClient } from "./supabase/server"
-import { untyped } from "./supabase/untyped"
 
 export type Role = "user" | "admin" | "owner"
 
@@ -40,7 +39,7 @@ export async function requireOnboardedUser() {
 export async function getRole(userId: string, email?: string | null): Promise<Role> {
   const supabase = await createServerClient()
   try {
-    const res = await untyped(supabase)
+    const res = await supabase
       .from("profiles")
       .select("role")
       .eq("user_id", userId)
@@ -48,7 +47,7 @@ export async function getRole(userId: string, email?: string | null): Promise<Ro
     const role = res?.data?.role
     if (role === "owner" || role === "admin" || role === "user") return role
   } catch {
-    // profiles.role column doesn't exist yet — fall through to bootstrap.
+    // Tabela/coluna ausente: cai pro bootstrap email-based.
   }
   if (email && email.toLowerCase() === BOOTSTRAP_OWNER_EMAIL) return "owner"
   return "user"

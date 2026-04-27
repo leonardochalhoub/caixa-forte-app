@@ -1,6 +1,5 @@
 import type { User } from "@supabase/supabase-js"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 interface PendingMeta {
   pending_city_ibge?: number
@@ -27,13 +26,12 @@ export async function syncPendingProfileFromMetadata(user: User): Promise<void> 
   if (!hasAny) return
 
   const admin = createAdminClient()
-  const db = untyped(admin)
 
   // Geocode if we have a city but no coords yet.
   let coords: { lat: number; lng: number } | null = null
   if (meta.pending_city_ibge) {
     try {
-      const { data } = await db
+      const { data } = await admin
         .from("cities_br")
         .select("lat, lng")
         .eq("ibge_id", meta.pending_city_ibge)
@@ -46,7 +44,14 @@ export async function syncPendingProfileFromMetadata(user: User): Promise<void> 
     }
   }
 
-  const profileUpdate: Record<string, unknown> = {}
+  const profileUpdate: {
+    city_ibge?: number
+    city_name?: string
+    uf?: string
+    lat?: number
+    lng?: number
+    gender?: "M" | "F"
+  } = {}
   if (meta.pending_city_ibge) profileUpdate.city_ibge = meta.pending_city_ibge
   if (meta.pending_city_name) profileUpdate.city_name = meta.pending_city_name
   if (meta.pending_uf) profileUpdate.uf = meta.pending_uf.toUpperCase()
@@ -57,7 +62,7 @@ export async function syncPendingProfileFromMetadata(user: User): Promise<void> 
   if (meta.pending_gender) profileUpdate.gender = meta.pending_gender
 
   if (Object.keys(profileUpdate).length > 0) {
-    await db.from("profiles").update(profileUpdate).eq("user_id", user.id)
+    await admin.from("profiles").update(profileUpdate).eq("user_id", user.id)
   }
 
   // Strip the pending_* keys so we don't keep trying on every request.
