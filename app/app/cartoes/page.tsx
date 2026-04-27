@@ -49,6 +49,7 @@ export default async function CartoesPage() {
     merchant: string | null
     paid_at: string | null
     is_transfer: boolean | null
+    tx_kind: "charge" | "invoice_payment" | "refund" | "fee" | "transfer" | null
   }
   // Busca TODAS as tx pra detectar tanto os charges itemizados (no
   // cartão) quanto o lump-sum de fatura (em outra conta). Lump-sum
@@ -57,7 +58,7 @@ export default async function CartoesPage() {
   const { data: txsRaw } = await untyped(supabase)
     .from("transactions")
     .select(
-      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer",
+      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
     )
     .eq("user_id", user.id)
     .order("occurred_on", { ascending: false })
@@ -85,38 +86,39 @@ export default async function CartoesPage() {
   }) => {
     const bankKey = bankKeyOfCard(card.name)
     const closingDay = card.closing_day ?? null
-    // Separa em 2 grupos: tx no cartão (charges itemizados) e
-    // lump-sums em OUTRAS contas cujo merchant contém "<banco> cartão".
+    // Charges: tx_kind='charge' nos casos novos. Backstop pra rows
+    // antigas (sem tx_kind setado): expense não-transfer no próprio
+    // cartão. (mig 0036 fez backfill; backstop só pra rows criadas
+    // antes da 0036 que ainda escaparam.)
     const charges = allTxs.filter(
       (t) =>
         t.account_id === card.id &&
-        !t.is_transfer &&
-        t.type === "expense",
+        (t.tx_kind === "charge" ||
+          (t.tx_kind === null && !t.is_transfer && t.type === "expense")),
     )
+    // Lump-sums agendados: continua via merchant string match, pois
+    // são tx regulares (tx_kind=null) que o user criou em conta
+    // corrente como agendamento. Não tem como inferir associação a
+    // cartão pela tx_kind sozinha. Excluímos invoice_payment (criado
+    // pelo botão Pagar — tem o seu lado próprio em transferPayments).
     const lumpSums = allTxs.filter((t) => {
       if (t.account_id === card.id) return false
       if (t.is_transfer) return false
+      if (t.tx_kind === "invoice_payment") return false
       if (t.type !== "expense") return false
       const m = normalizeMerchant(t.merchant)
-      // "Pagamento fatura *" é o expense do par transfer criado pelo
-      // botão Pagar; não conta como lump-sum (já é representado via
-      // transferPayments do lado do cartão). Sem essa exclusão a tx
-      // seria duplo-contada (uma vez como lump-sum, uma vez como
-      // transferPayment) inflando paidCents.
-      if (m.startsWith("pagamento fatura")) return false
+      if (m.startsWith("pagamento fatura")) return false // belt+suspenders
       if (!m.includes("cartao")) return false
       return !!bankKey && m.includes(bankKey)
     })
 
-    // Pagamentos via botão "Pagar fatura" (payInvoiceAction): cria
-    // par transfer (saída na corrente + entrada no cartão, ambos
-    // is_transfer=true). A entrada NA CONTA DO CARTÃO é o que
-    // representa "fatura paga" via transfer. Bucketed pelo mês no
-    // merchant ("Pagamento fatura ... · Abril 2026").
+    // Pagamentos via botão "Pagar fatura" (payInvoiceAction): a tx
+    // do lado do cartão é tx_kind='invoice_payment' + type='income'.
+    // Bucketed pelo mês no merchant ("Pagamento fatura ... · Abril 2026").
     const transferPayments = allTxs.filter(
       (t) =>
         t.account_id === card.id &&
-        t.is_transfer === true &&
+        t.tx_kind === "invoice_payment" &&
         t.type === "income",
     )
 
