@@ -1,6 +1,5 @@
 import { isOwner, requireAdmin } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 import { splitBankAndSub } from "@/lib/bank-taxonomy"
 import { formatBRL } from "@/lib/money"
 import { SysadminDashboard } from "./_components/SysadminDashboard"
@@ -30,7 +29,7 @@ export default async function SysadminPage() {
   await requireAdmin()
   const ownerFlag = await isOwner()
   const admin = createAdminClient()
-  const db = untyped(admin)
+  const db = admin
 
   const { data: authUsers } = await admin.auth.admin.listUsers({
     page: 1,

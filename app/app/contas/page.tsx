@@ -1,7 +1,6 @@
 import type { AccountType } from "@/lib/types"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { AccountsManager } from "./_components/AccountsManager"
 
 export const dynamic = "force-dynamic"
@@ -11,7 +10,7 @@ export default async function ContasPage() {
   const user = await requireOnboardedUser()
   const supabase = await createServerClient()
 
-  const { data: accounts } = await untyped(supabase)
+  const { data: accounts } = await supabase
     .from("accounts")
     .select(
       "id, name, type, sort_order, archived_at, opening_balance_cents, balance_classification",

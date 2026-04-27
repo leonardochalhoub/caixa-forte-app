@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache"
 import { z } from "zod"
 import { isOwner, requireAdmin, requireOwner } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 const SetRoleSchema = z.object({
   userId: z.string().uuid(),
@@ -17,7 +16,7 @@ export async function setRoleAction(input: z.infer<typeof SetRoleSchema>) {
   const admin = createAdminClient()
 
   // Prevent demoting the owner accidentally.
-  const target = await untyped(admin)
+  const target = await admin
     .from("profiles")
     .select("role")
     .eq("user_id", parsed.userId)
@@ -26,7 +25,7 @@ export async function setRoleAction(input: z.infer<typeof SetRoleSchema>) {
     throw new Error("Não é possível rebaixar o owner.")
   }
 
-  const { error } = await untyped(admin)
+  const { error } = await admin
     .from("profiles")
     .update({ role: parsed.role })
     .eq("user_id", parsed.userId)

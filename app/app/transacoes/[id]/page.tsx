@@ -2,7 +2,6 @@ import { notFound } from "next/navigation"
 import type { AccountType } from "@/lib/types"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { EditTransaction } from "./_components/EditTransaction"
 
 export default async function TransactionDetail({
@@ -15,7 +14,7 @@ export default async function TransactionDetail({
   const supabase = await createServerClient()
 
   const [{ data: tx }, { data: accounts }, { data: categories }] = await Promise.all([
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select(
         "id, type, amount_cents, occurred_on, merchant, note, account_id, category_id, source, needs_review, raw_input, paid_at",

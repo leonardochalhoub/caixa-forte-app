@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { isAdminish, requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { reactivateIfDeleted } from "./profile/lifecycle"
 import { Footer } from "@/components/footer"
 import { SafeBoxIcon } from "@/components/SafeBoxIcon"
@@ -19,7 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // after the user signs back in with the same email+password.
   await reactivateIfDeleted(user.id)
   const supabase = await createServerClient()
-  const { data: profile } = await untyped(supabase)
+  const { data: profile } = await supabase
     .from("profiles")
     .select("display_name, is_demo")
     .eq("user_id", user.id)

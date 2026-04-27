@@ -4,7 +4,6 @@ export const revalidate = 0
 import { ArrowDown, ArrowUp, FileBarChart, TrendingDown, TrendingUp } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { formatBRL } from "@/lib/money"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { DREPeriodSelector } from "./_components/DREPeriodSelector"
@@ -106,7 +105,7 @@ export default async function DREPage({
         .select("id, name, type")
         .eq("user_id", user.id)
         .is("archived_at", null),
-      untyped(supabase)
+      supabase
         .from("transactions")
         .select(
           "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer, category_id",
@@ -118,7 +117,7 @@ export default async function DREPage({
         .from("categories")
         .select("id, name, parent_id, is_income, is_formal_income")
         .eq("user_id", user.id),
-      untyped(supabase)
+      supabase
         .from("profiles")
         .select("display_name")
         .eq("user_id", user.id)
@@ -271,7 +270,7 @@ export default async function DREPage({
   // Meses disponíveis
   const activeMonths = new Set<string>()
   const activeYears = new Set<number>()
-  const { data: allTxsForPeriods } = await untyped(supabase)
+  const { data: allTxsForPeriods } = await supabase
     .from("transactions")
     .select("occurred_on")
     .eq("user_id", user.id)

@@ -4,7 +4,6 @@ export const revalidate = 0
 import { ArrowDown, ArrowUp, ArrowLeftRight, TrendingDown, TrendingUp } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { formatBRL } from "@/lib/money"
 import { formatInSaoPaulo, formatPtBrDateShort } from "@/lib/time"
 import { PrintActions } from "./_components/PrintActions"
@@ -100,7 +99,7 @@ export default async function ConciliacaoPage({
       .order("sort_order"),
     // Fetch TODAS as tx (paid e unpaid). Filtro por account type acontece
     // depois: não-cartão só conta paid; cartão conta tudo (debt).
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select(
         "id, account_id, type, amount_cents, occurred_on, paid_at, created_at, merchant, is_transfer, category_id",
@@ -114,7 +113,7 @@ export default async function ConciliacaoPage({
       .eq("user_id", user.id)
       .eq("error", "no_account")
       .is("transaction_id", null),
-    untyped(supabase)
+    supabase
       .from("profiles")
       .select("display_name")
       .eq("user_id", user.id)

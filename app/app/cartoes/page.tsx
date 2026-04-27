@@ -5,7 +5,6 @@ import Link from "next/link"
 import { CreditCard } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatBRL } from "@/lib/money"
 import { formatPtBrDateShort } from "@/lib/time"
@@ -25,7 +24,7 @@ export default async function CartoesPage() {
   const user = await requireOnboardedUser()
   const supabase = await createServerClient()
 
-  const { data: cards } = await untyped(supabase)
+  const { data: cards } = await supabase
     .from("accounts")
     .select("id, name, opening_balance_cents, created_at, closing_day")
     .eq("user_id", user.id)
@@ -56,7 +55,7 @@ export default async function CartoesPage() {
   // cartão) quanto o lump-sum de fatura (em outra conta). Lump-sum
   // serve de source-of-truth pra "total da fatura"; itemizados são
   // breakdown.
-  const { data: txsRaw } = await untyped(supabase)
+  const { data: txsRaw } = await supabase
     .from("transactions")
     .select(
       "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
