@@ -69,9 +69,45 @@ const PayInvoiceSchema = z.object({
   invoiceLabel: z.string().min(1).max(60),
 })
 
+const MONTHS_PT_LOWER = [
+  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+]
+
+function normalizeStr(s: string): string {
+  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+}
+
+function bankKeyFromCardName(cardName: string): string {
+  const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
+  return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
+}
+
+// Extrai monthLowerNoAccent + year do invoiceLabel ("Nubank Cartão · Abril 2026")
+// pra casar com o merchant do lump-sum agendado ("Nubank Cartão Abril 2026").
+function parseInvoiceMonth(invoiceLabel: string): {
+  monthName: string
+  year: string
+} | null {
+  const norm = normalizeStr(invoiceLabel)
+  const yearMatch = norm.match(/(20\d{2})/)
+  if (!yearMatch) return null
+  for (const monthName of MONTHS_PT_LOWER) {
+    if (norm.includes(monthName)) {
+      return { monthName, year: yearMatch[1]! }
+    }
+  }
+  return null
+}
+
 // Creates a transfer pair: expense on source checking + matching
 // income on the credit card account. Both marked is_transfer=true so
 // KPIs don't double-count it as income/outgo. Both paid_at=now.
+//
+// Idempotência: se existir lump-sum agendado (paid_at=null) pra essa
+// fatura — formato "<banco> Cartão <Mês> <Ano>" em qualquer conta —
+// apaga ele junto. Esse lump-sum era o agendamento prévio do user;
+// o transfer pair vira o registro do pagamento real.
 export async function payInvoiceAction(
   input: z.infer<typeof PayInvoiceSchema>,
 ) {
@@ -81,6 +117,50 @@ export async function payInvoiceAction(
   const today = new Date().toISOString().slice(0, 10)
   const nowIso = new Date().toISOString()
   const merchant = `Pagamento fatura ${parsed.invoiceLabel}`
+
+  // Identifica e apaga lump-sums agendados pra essa fatura — ficam
+  // redundantes assim que o pagamento real é registrado.
+  const { data: card } = await untyped(supabase)
+    .from("accounts")
+    .select("name")
+    .eq("id", parsed.cardId)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  const cardName = (card as { name?: string } | null)?.name ?? ""
+  const bankKey = bankKeyFromCardName(cardName)
+  const invoiceMonth = parseInvoiceMonth(parsed.invoiceLabel)
+
+  let deletedScheduledIds: string[] = []
+  if (bankKey && invoiceMonth) {
+    const { data: scheduled } = await untyped(supabase)
+      .from("transactions")
+      .select("id, merchant")
+      .eq("user_id", user.id)
+      .is("paid_at", null)
+      .eq("type", "expense")
+      .eq("is_transfer", false)
+      .neq("account_id", parsed.cardId)
+    const matches = ((scheduled as Array<{ id: string; merchant: string | null }>) ?? [])
+      .filter((t) => {
+        const m = normalizeStr(t.merchant ?? "")
+        return (
+          m.includes("cartao") &&
+          m.includes(bankKey) &&
+          m.includes(invoiceMonth.monthName) &&
+          m.includes(invoiceMonth.year)
+        )
+      })
+      .map((t) => t.id)
+    if (matches.length > 0) {
+      const { error: delErr } = await untyped(supabase)
+        .from("transactions")
+        .delete()
+        .in("id", matches)
+        .eq("user_id", user.id)
+      if (delErr) throw new Error(`Falha ao limpar agendamento: ${delErr.message}`)
+      deletedScheduledIds = matches
+    }
+  }
 
   const { error: expErr } = await untyped(supabase)
     .from("transactions")
@@ -119,5 +199,5 @@ export async function payInvoiceAction(
   revalidatePath("/app/cartoes")
   revalidatePath("/app")
   revalidatePath("/app/contas")
-  return { ok: true }
+  return { ok: true, deletedScheduledIds }
 }
