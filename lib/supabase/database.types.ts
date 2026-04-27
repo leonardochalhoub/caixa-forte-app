@@ -633,6 +633,7 @@ export type Database = {
           paid_at: string | null
           raw_input: string | null
           source: string
+          transfer_peer_id: string | null
           tx_kind: string | null
           type: string
           updated_at: string | null
@@ -654,6 +655,7 @@ export type Database = {
           paid_at?: string | null
           raw_input?: string | null
           source: string
+          transfer_peer_id?: string | null
           tx_kind?: string | null
           type: string
           updated_at?: string | null
@@ -675,6 +677,7 @@ export type Database = {
           paid_at?: string | null
           raw_input?: string | null
           source?: string
+          transfer_peer_id?: string | null
           tx_kind?: string | null
           type?: string
           updated_at?: string | null
@@ -693,6 +696,13 @@ export type Database = {
             columns: ["category_id"]
             isOneToOne: false
             referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_transfer_peer_id_fkey"
+            columns: ["transfer_peer_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
             referencedColumns: ["id"]
           },
         ]
