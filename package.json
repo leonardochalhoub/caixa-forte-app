@@ -1,6 +1,6 @@
 {
   "name": "caixa-forte-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "App pessoal de controle financeiro (pt-br) com entrada rápida via texto/voz, auto-categorização e dashboard monocromático.",
   "scripts": {
