@@ -1,7 +1,6 @@
 "use client"
 
 import { FileDown, Printer } from "lucide-react"
-import * as XLSX from "xlsx"
 
 export function PrintActions({
   rows,
@@ -12,9 +11,11 @@ export function PrintActions({
   filename: string
   sheetName?: string
 }) {
-  function downloadXlsx() {
+  // xlsx é ~900KB minified — lazy-load só no clique pra não inflar o
+  // bundle inicial das páginas de relatório.
+  async function downloadXlsx() {
+    const XLSX = await import("xlsx")
     const ws = XLSX.utils.aoa_to_sheet(rows)
-    // Column widths automáticos baseados no conteúdo
     const colWidths = rows[0]?.map((_, colIdx) => {
       const maxLen = Math.max(
         ...rows.map((r) => {
