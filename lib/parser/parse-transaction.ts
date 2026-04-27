@@ -126,7 +126,26 @@ export async function parseTransaction(input: {
     throw new ParserError(`Schema Zod falhou: ${validated.error.message}`)
   }
 
-  return { parsed: validated.data, durationMs, model }
+  // Cap de confidence quando o parser teve que adivinhar muito.
+  // Se merchant E account_hint vêm null, é sinal forte de input
+  // incompleto — independente do que o modelo retornou. Limita a
+  // 0.82 pra forçar o needs_review (threshold gerado < 0.70 fica
+  // intacto; 0.82 só marca como "olha isso depois" mas não bloqueia).
+  const adjusted = { ...validated.data }
+  if (
+    adjusted.merchant === null &&
+    adjusted.account_hint === null &&
+    adjusted.confidence > 0.82
+  ) {
+    adjusted.metadata = {
+      ...adjusted.metadata,
+      confidence_capped_from: adjusted.confidence,
+      confidence_cap_reason: "merchant+account_hint null",
+    }
+    adjusted.confidence = 0.82
+  }
+
+  return { parsed: adjusted, durationMs, model }
 }
 
 export async function transcribeAudio(audio: Blob): Promise<{
