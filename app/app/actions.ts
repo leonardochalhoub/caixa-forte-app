@@ -161,11 +161,19 @@ async function nextOpenInvoiceDate(
   const bankKey = bankKeyFromCardName(cardName)
   if (!bankKey) return seedDate
 
+  // Limita a janela: o detector de "fatura fechada" via merchant
+  // string só faz sentido pros últimos meses. Sem .gte e .limit, esse
+  // SELECT virava full-table-scan da ledger inteira por charge.
+  const twoYearsAgo = new Date(Date.now() - 2 * 365.25 * 86400_000)
+    .toISOString()
+    .slice(0, 10)
   const { data: lumpSumsRaw } = await untyped(supabase)
     .from("transactions")
     .select("merchant, paid_at, is_transfer, type")
     .eq("user_id", userId)
     .not("paid_at", "is", null)
+    .gte("occurred_on", twoYearsAgo)
+    .limit(500)
   const lumpSums = (lumpSumsRaw ?? []) as Array<{
     merchant: string | null
     paid_at: string | null
