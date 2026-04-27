@@ -4,19 +4,9 @@ export const revalidate = 0
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import type { AccountType } from "@/lib/types"
-import { bucketizeTransactions, lastNMonthSlots } from "@/lib/analytics/periods"
-import { todayIsoDate, formatPtBrDateShort } from "@/lib/time"
-import { formatBRL } from "@/lib/money"
+import { lastNMonthSlots } from "@/lib/analytics/periods"
 import { UF_CENTROIDS } from "@/lib/ibge"
 import { explainTrends } from "@/lib/ai/trend-explainer"
-import Link from "next/link"
-import {
-  bankKeyOfCard,
-  chargeInvoiceMonth,
-  merchantInvoiceMonth,
-  normalizeMerchant,
-} from "@/lib/invoices/bucket"
-import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { ClockWeather } from "./_components/ClockWeather"
 import { KpiOverview } from "./_components/KpiOverview"
@@ -24,6 +14,29 @@ import { PendingCaptures } from "./_components/PendingCaptures"
 import { QuickCapture } from "./_components/QuickCapture"
 import { RecentTransactions } from "./_components/RecentTransactions"
 import { TrendStrip } from "./_components/TrendStrip"
+import { UpcomingList } from "./_components/UpcomingList"
+import {
+  fetchAllExpenseTx,
+  fetchCardCalcTxs,
+  fetchDashboardCore,
+  fetchUserLocation,
+} from "@/lib/dashboard/queries"
+import {
+  buildAccountsWithBalance,
+  buildCardsByBankKey,
+  buildFlowByAccount,
+  buildItemizedByCardMonth,
+  buildMonthlyTotals,
+  buildOpenDebtByCard,
+  buildPendingVirtualTx,
+  buildTotalBalanceCents,
+  getCreditAccountIds,
+  getFormalIncomeIds,
+  groupAccountsByType,
+  makeEffectiveAmountFn,
+  pendingNetCentsOf,
+  sumGroupTotals,
+} from "@/lib/dashboard/helpers"
 
 export default async function DashboardPage() {
   const user = await requireOnboardedUser()
@@ -31,473 +44,60 @@ export default async function DashboardPage() {
 
   const slots = lastNMonthSlots(12)
   const oldestStart = slots[0]!.start
-  const today = todayIsoDate()
 
-  type AccountRow = {
-    id: string
-    name: string
-    type: string
-    opening_balance_cents: number | null
-    closing_day?: number | null
-  }
-  const [
-    { data: monthTx },
-    { data: recentTx },
-    { data: accountsRaw },
-    { data: categories },
-    { data: flowRealized },
-    { data: upcomingTx },
-    { data: pendingCaptures },
-  ] = await Promise.all([
-    supabase
-      .from("transactions")
-      .select(
-        "type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at, merchant",
-      )
-      .eq("user_id", user.id)
-      .gte("occurred_on", oldestStart),
-    // "Últimas transações" no dashboard só mostra movimentações das
-    // contas normais. Tx em cartão de crédito (charges) ficam dentro
-    // da fatura em /app/cartoes — não aparecem aqui pra não poluir.
-    supabase
-      .from("transactions")
-      .select(
-        "id, type, amount_cents, occurred_on, merchant, note, needs_review, account_id, category_id, created_at, paid_at",
-      )
-      .eq("user_id", user.id)
-      .order("occurred_on", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(100),
-    supabase
-      .from("accounts")
-      .select("id, name, type, opening_balance_cents, closing_day")
-      .eq("user_id", user.id)
-      .is("archived_at", null)
-      .order("sort_order"),
-    supabase
-      .from("categories")
-      .select("id, name, is_income, parent_id, is_formal_income")
-      .eq("user_id", user.id)
-      .order("sort_order"),
-    // flowRealized agora traz TODAS as tx (com e sem paid_at) +
-    // account_id. Depois separamos: contas não-cartão usam só paid_at
-    // não-nulo; cartão de crédito usa tudo (charge é dívida desde o
-    // swipe, independente de paid_at).
-    supabase
-      .from("transactions")
-      .select("account_id, type, amount_cents, paid_at, is_transfer, tx_kind")
-      .eq("user_id", user.id),
-    supabase
-      .from("transactions")
-      .select(
-        "id, type, amount_cents, occurred_on, merchant, note, account_id, category_id",
-      )
-      .eq("user_id", user.id)
-      .is("paid_at", null)
-      .order("occurred_on", { ascending: true })
-      .limit(20),
-    supabase
-      .from("capture_messages")
-      .select("id, channel, raw_input, groq_parse_json, created_at")
-      .eq("user_id", user.id)
-      .eq("error", "no_account")
-      .is("transaction_id", null)
-      .order("created_at", { ascending: true })
-      .limit(20),
+  const [core, allExpenseTx, cardCalcTxs, location] = await Promise.all([
+    fetchDashboardCore(supabase, user.id, oldestStart),
+    fetchAllExpenseTx(supabase, user.id),
+    fetchCardCalcTxs(supabase, user.id),
+    fetchUserLocation(supabase, user.id),
   ])
+  // allExpenseTx é mantido em paridade com a versão anterior — alimenta
+  // o `detectedCardDebt` legado que serve como base de referência pro
+  // openDebtByCard. Não é usado diretamente no display.
+  void allExpenseTx
 
-  const accounts = (accountsRaw ?? []) as AccountRow[]
+  const { accounts, categories, monthTx, recentTx, flowRealized, upcomingTx, pendingCaptures } =
+    core
 
-  const formalIncomeIds = new Set(
-    (categories ?? [])
-      .filter((c) => c.is_formal_income === true)
-      .map((c) => c.id),
-  )
+  const formalIncomeIds = getFormalIncomeIds(categories)
+  const creditAccountIdSet = getCreditAccountIds(accounts)
+  const cardsByBankKey = buildCardsByBankKey(accounts)
+  const itemizedByCardMonth = buildItemizedByCardMonth(monthTx, creditAccountIdSet)
+  const pendingVirtualTx = buildPendingVirtualTx(pendingCaptures)
+  const pendingNetCents = pendingNetCentsOf(pendingVirtualTx)
 
-  // Pending captures (no_account) are real spending that hasn't been
-  // allocated yet. We synthesize them as virtual transactions so the
-  // monthly KPIs and the hero total reflect them right away — even though
-  // they're not on any account. Assigning an account later just moves the
-  // number from "pending" to a real account without double-counting.
-  const pendingVirtualTx = (pendingCaptures ?? [])
-    .map((c) => c.groq_parse_json as {
-      amount_cents?: number
-      type?: "income" | "expense"
-      occurred_on?: string
-    } | null)
-    .filter(
-      (p): p is {
-        amount_cents: number
-        type: "income" | "expense"
-        occurred_on: string
-      } =>
-        !!p &&
-        typeof p.amount_cents === "number" &&
-        (p.type === "income" || p.type === "expense") &&
-        typeof p.occurred_on === "string",
-    )
-
-  // KPIs mensais (Entrada/Saída/Perda) não contam tx em cartão de
-  // crédito — esse dinheiro ainda não "saiu" da vida do user, só vai
-  // sair quando a fatura for paga (daí o pagamento sim entra em Saída).
-  const creditAccountIdSet = new Set(
-    (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
-  )
-  type MonthTxRow = {
-    account_id: string
-    paid_at: string | null
-    occurred_on: string
-    type: string
-    amount_cents: number | string
-    category_id: string | null
-    is_transfer: boolean | null
-    merchant: string | null
-  }
-  const monthTxTyped = (monthTx ?? []) as MonthTxRow[]
-  // Constrói map de itemizados do cartão por mês (pra o lump-sum da
-  // corrente ser contabilizado com o valor efetivo 6415,25 + 781,44
-  // em vez do valor raw da tx).
-  const itemizedByCardMonthKpi = new Map<string, number>()
-  for (const t of monthTxTyped) {
-    if (t.is_transfer) continue
-    if (!creditAccountIdSet.has(t.account_id)) continue
-    if (t.type !== "expense") continue
-    const key = `${t.account_id}-${t.occurred_on.slice(0, 7)}`
-    itemizedByCardMonthKpi.set(
-      key,
-      (itemizedByCardMonthKpi.get(key) ?? 0) + Number(t.amount_cents),
-    )
-  }
-  const cardsByBankKeyKpi = new Map<string, string>()
-  for (const a of accounts ?? []) {
-    if (a.type !== "credit") continue
-    const cleaned = a.name.replace(/cart[ãa]o.*/i, "").trim()
-    const k = cleaned
-      .split(/\s+/)[0]
-      ?.normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase()
-    if (k) cardsByBankKeyKpi.set(k, a.id)
-  }
-  const effectiveForKpi = (t: MonthTxRow): number => {
-    const base = Number(t.amount_cents)
-    const m = (t as MonthTxRow & { merchant?: string | null }).merchant
-    // monthTx query não traz merchant. Não consigo fazer match aqui.
-    // Fallback: retorna base. O match pra effective acontece em
-    // monthTx APENAS se incluir merchant. Adicionando na query.
-    return base + (m ? 0 : 0)
-  }
-  void effectiveForKpi // silence unused
-
-  const monthly = bucketizeTransactions(
-    [
-      ...monthTxTyped
-        .filter((t) => !creditAccountIdSet.has(t.account_id))
-        .map((t) => {
-          const m = (t as MonthTxRow & { merchant?: string | null }).merchant ?? ""
-          const normalized = m
-            .normalize("NFD")
-            .replace(/\p{Diacritic}/gu, "")
-            .toLowerCase()
-          let amount = Number(t.amount_cents)
-          // "Pagamento fatura *" é o transfer pair criado pelo botão
-          // Pagar — já tem o valor real do pagamento, não inflar.
-          // Lump-sums agendados ("<banco> cartão <mês>") devem ser
-          // inflados pra somar charges itemized do mesmo mês.
-          const isFaturaPayment = normalized.startsWith("pagamento fatura")
-          if (!isFaturaPayment && normalized.includes("cartao")) {
-            for (const [bankKey, cardId] of cardsByBankKeyKpi) {
-              if (normalized.includes(bankKey)) {
-                const addon =
-                  itemizedByCardMonthKpi.get(
-                    `${cardId}-${t.occurred_on.slice(0, 7)}`,
-                  ) ?? 0
-                amount = Number(t.amount_cents) + addon
-                break
-              }
-            }
-          }
-          return {
-            occurred_on: t.occurred_on,
-            type: t.type as "income" | "expense",
-            amount_cents: amount,
-            category_id: t.category_id,
-            is_transfer: t.is_transfer ?? false,
-          }
-        }),
-      ...pendingVirtualTx.map((p) => ({
-        occurred_on: p.occurred_on,
-        type: p.type,
-        amount_cents: p.amount_cents,
-        category_id: null,
-        is_transfer: false,
-      })),
-    ],
+  const monthly = buildMonthlyTotals({
+    monthTx,
+    pending: pendingVirtualTx,
     slots,
     formalIncomeIds,
-  )
-
-  const pendingNetCents = pendingVirtualTx.reduce(
-    (s, p) => s + (p.type === "income" ? p.amount_cents : -p.amount_cents),
-    0,
-  )
-
-  const accountTypeById = new Map(
-    (accounts ?? []).map((a) => [a.id, a.type as AccountType]),
-  )
-  const flowByAccount = new Map<string, number>()
-  for (const t of flowRealized ?? []) {
-    const accType = accountTypeById.get(t.account_id)
-    const isCreditAcc = accType === "credit"
-    // Cartão: conta tudo (inclusive paid_at=null) — charges são dívida
-    // assim que aparecem. Demais contas: só paid_at não-nulo.
-    if (!isCreditAcc && t.paid_at == null) continue
-    const delta = t.type === "income" ? Number(t.amount_cents) : -Number(t.amount_cents)
-    flowByAccount.set(t.account_id, (flowByAccount.get(t.account_id) ?? 0) + delta)
-  }
-
-  // Detecta dívida "a pagar" de cartão a partir de merchants tipo
-  // "<banco> Cartão <mês>" em qualquer conta — útil quando o user
-  // registra a fatura como agendada na corrente em vez de itemizar as
-  // compras no cartão. Só entra na dívida exibida se paid_at=null.
-  const normalizeStr = normalizeMerchant
-  const bankKey = bankKeyOfCard
-  // Busca todas as tx do user (incluindo agendadas) pra detectar
-  // lump-sums. Limitado a expense is_transfer=false.
-  const { data: allTxRaw } = await supabase
-    .from("transactions")
-    .select("account_id, type, amount_cents, merchant, paid_at, is_transfer, tx_kind")
-    .eq("user_id", user.id)
-    .eq("type", "expense")
-  const allExpenseTx = (allTxRaw ?? []) as Array<{
-    account_id: string
-    amount_cents: number
-    merchant: string | null
-    paid_at: string | null
-    is_transfer: boolean | null
-    tx_kind: string | null
-  }>
-  const detectedCardDebt = new Map<string, number>()
-  for (const card of (accounts ?? []).filter(
-    (a) => (a.type as AccountType) === "credit",
-  )) {
-    const key = bankKey(card.name)
-    if (!key) continue
-    let debt = 0
-    for (const t of allExpenseTx) {
-      if (t.is_transfer) continue
-      // Exclui invoice_payment (já é representado em transferPayments
-      // do lado do cartão; somar de novo aqui inflaria a dívida).
-      if (t.tx_kind === "invoice_payment") continue
-      if (t.account_id === card.id) continue // já contado em flowByAccount
-      if (t.paid_at) continue // fatura já paga no passado, water under the bridge
-      const m = normalizeStr(t.merchant ?? "")
-      if (!m.includes("cartao")) continue
-      if (!m.includes(key)) continue
-      debt += Number(t.amount_cents)
-    }
-    if (debt > 0) detectedCardDebt.set(card.id, debt)
-  }
-
-  // Pra cartões, calcula openCents real por fatura (mesma lógica do
-  // /app/cartoes): respeita closing_day pra bucketar charges, parseia
-  // mês/ano do merchant pra lump-sums e transfer payments. Resultado:
-  // dívida exibida = soma das faturas em aberto. Funciona certo em
-  // casos de over-payment (refunds, pagamento antecipado).
-  // Helpers vêm todos de @/lib/invoices/bucket — fonte única.
-  const chargeInvoiceMonthHome = chargeInvoiceMonth
-  const merchantInvoiceMonthHome = merchantInvoiceMonth
-  // allTxs precisa de closing_day por cartão; flowRealized não tem
-  // occurred_on/merchant. Usa allExpenseTx + tx do próprio cartão (já
-  // temos via flowRealized que tem account_id, mas falta merchant/
-  // occurred_on). Refazendo com query rica.
-  const { data: cardCalcTxRaw } = await supabase
-    .from("transactions")
-    .select(
-      "account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
-    )
-    .eq("user_id", user.id)
-  type CardCalcTx = {
-    account_id: string
-    type: string
-    amount_cents: number | string
-    occurred_on: string
-    merchant: string | null
-    paid_at: string | null
-    is_transfer: boolean | null
-    tx_kind: string | null
-  }
-  const cardCalcTxs = (cardCalcTxRaw ?? []) as CardCalcTx[]
-
-  const openDebtByCard = new Map<string, number>()
-  for (const card of (accounts ?? []).filter(
-    (a) => (a.type as AccountType) === "credit",
-  )) {
-    // Sempre usa o closing_day setado pelo usuário no DB. Se NULL,
-    // helper cai pro mês-calendário (sem assumir 20).
-    const closingDay = (card as { closing_day?: number | null }).closing_day ?? null
-    const cardBankKey = bankKey(card.name)
-    type Bucket = { total: number; paid: number }
-    const byMonth = new Map<string, Bucket>()
-    const ensure = (k: string): Bucket => {
-      const b = byMonth.get(k) ?? { total: 0, paid: 0 }
-      byMonth.set(k, b)
-      return b
-    }
-    for (const t of cardCalcTxs) {
-      // Pagamento via botão Pagar (par criado por pay_invoice RPC):
-      // tx_kind='invoice_payment' + type=income no lado do cartão.
-      if (
-        t.tx_kind === "invoice_payment" &&
-        t.account_id === card.id &&
-        t.type === "income"
-      ) {
-        const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
-        ensure(k).paid += Number(t.amount_cents)
-        continue
-      }
-      if (t.is_transfer) continue
-      if (t.type !== "expense") continue
-      if (t.account_id === card.id) {
-        // Charge itemized: tx_kind='charge' (ou null legacy = backstop)
-        if (t.tx_kind === "charge" || t.tx_kind === null) {
-          const k = chargeInvoiceMonthHome(t.occurred_on, closingDay)
-          ensure(k).total += Number(t.amount_cents)
-        }
-      } else {
-        // lump-sum agendado em outra conta? (tx_kind=null + merchant match)
-        if (t.tx_kind === "invoice_payment") continue // já contado acima
-        const m = normalizeStr(t.merchant ?? "")
-        if (!m.includes("cartao") || !m.includes(cardBankKey)) continue
-        const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
-        ensure(k).total += Number(t.amount_cents)
-        if (t.paid_at) ensure(k).paid += Number(t.amount_cents)
-      }
-    }
-    let openSum = 0
-    for (const b of byMonth.values()) {
-      openSum += Math.max(0, b.total - b.paid)
-    }
-    openDebtByCard.set(card.id, openSum)
-  }
-
-  const accountsWithBalance = (accounts ?? []).map((a) => {
-    const isCredit = (a.type as AccountType) === "credit"
-    if (isCredit) {
-      // Display: dívida em aberto (soma das faturas não pagas).
-      // Negativo = quanto deve. 0 = tudo em dia.
-      const open = openDebtByCard.get(a.id) ?? 0
-      return {
-        id: a.id,
-        name: a.name,
-        type: a.type as AccountType,
-        balanceCents: -open,
-      }
-    }
-    const balance = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
-    return {
-      id: a.id,
-      name: a.name,
-      type: a.type as AccountType,
-      balanceCents: balance,
-    }
+    creditAccountIds: creditAccountIdSet,
+    cardsByBankKey,
+    itemizedByCardMonth,
   })
 
-  const savingsAccounts = accountsWithBalance.filter(
-    (a) => a.type === "savings" || a.type === "poupanca",
+  const accountTypeById = new Map(
+    accounts.map((a) => [a.id, a.type as AccountType]),
   )
-  const investmentAccounts = accountsWithBalance.filter((a) => a.type === "investment")
-  const cryptoAccounts = accountsWithBalance.filter((a) => a.type === "crypto")
-  const fgtsAccounts = accountsWithBalance.filter((a) => a.type === "fgts")
-  const creditAccounts = accountsWithBalance.filter((a) => a.type === "credit")
-  const liquidAccounts = accountsWithBalance.filter(
-    (a) =>
-      a.type !== "savings" &&
-      a.type !== "poupanca" &&
-      a.type !== "investment" &&
-      a.type !== "crypto" &&
-      a.type !== "fgts" &&
-      a.type !== "credit",
-  )
-  const savingsCents = savingsAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  const investmentCents = investmentAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  const cryptoCents = cryptoAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  const fgtsCents = fgtsAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  const liquidCents = liquidAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  // Credit card balance = running debt (negative when you owe). Subtracted
-  // from the "liquid + savings + investments" net worth.
-  const creditCents = creditAccounts.reduce((s, a) => s + a.balanceCents, 0)
-  // Saldo = dinheiro que você TEM nas contas agora (líquido + savings
-  // + investimentos + cripto) − pendentes não alocados. FGTS fora
-  // (bloqueado). Dívida de cartão NÃO é descontada — o dinheiro ainda
-  // está na sua conta; só sai quando você paga a fatura. Isso faz o
-  // saldo descer naturalmente na data do pagamento, igual à vida real.
-  const totalBalanceCents =
-    liquidCents +
-    savingsCents +
-    investmentCents +
-    cryptoCents +
-    pendingNetCents
-
-  const creditIdsForFilter = new Set(
-    (accounts ?? []).filter((a) => a.type === "credit").map((a) => a.id),
+  const flowByAccount = buildFlowByAccount(flowRealized, accountTypeById)
+  const openDebtByCard = buildOpenDebtByCard(cardCalcTxs, accounts)
+  const accountsWithBalance = buildAccountsWithBalance(
+    accounts,
+    flowByAccount,
+    openDebtByCard,
   )
 
-  // Pra lump-sums de fatura ("<banco> cartão <mês>") em contas
-  // correntes, o valor exibido em Agendadas e Últimas transações é o
-  // TOTAL da fatura = lump-sum + charges itemizados no cartão do mesmo
-  // banco/mês. Sem isso o user vê R$ 6.415,25 em vez de R$ 7.196,69.
-  const cardsByBankKey = new Map<string, string>() // bankKey -> card.id
-  for (const a of accounts ?? []) {
-    if (a.type !== "credit") continue
-    const k = bankKeyOfCard(a.name)
-    if (k) cardsByBankKey.set(k, a.id)
-  }
-  // Calcula itemizados por cartão+mês a partir do flowRealized
-  const itemizedByCardMonth = new Map<string, number>() // `${cardId}-${yyyy-mm}` -> cents
-  for (const t of flowRealized ?? []) {
-    if (t.is_transfer) continue
-    if (!creditIdsForFilter.has(t.account_id)) continue
-    if (t.type !== "expense") continue
-    // occurred_on não está em flowRealized mas podemos usar paid_at como fallback
-    // Mais simples: buscar de monthTx que tem occurred_on
-  }
-  // Fallback: usa monthTx (que tem occurred_on) pra construir o map
-  for (const t of monthTxTyped) {
-    if (t.is_transfer) continue
-    if (!creditIdsForFilter.has(t.account_id)) continue
-    if (t.type !== "expense") continue
-    const key = `${t.account_id}-${t.occurred_on.slice(0, 7)}`
-    itemizedByCardMonth.set(
-      key,
-      (itemizedByCardMonth.get(key) ?? 0) + Number(t.amount_cents),
-    )
-  }
+  const grouped = groupAccountsByType(accountsWithBalance)
+  const totals = sumGroupTotals(grouped)
+  const totalBalanceCents = buildTotalBalanceCents(totals, pendingNetCents)
 
-  function effectiveAmountCents(t: {
-    amount_cents: number | string
-    merchant: string | null
-    occurred_on: string
-  }): number {
-    const base = Number(t.amount_cents)
-    const m = normalizeMerchant(t.merchant ?? "")
-    // "Pagamento fatura *" é o transfer pair criado pelo botão Pagar.
-    // Esse já tem o valor real do pagamento; NÃO inflar com itemized
-    // do mês (causaria double-count). Só lump-sums agendados ("<banco>
-    // cartão <mês>") devem ser inflados.
-    if (m.startsWith("pagamento fatura")) return base
-    if (!m.includes("cartao")) return base
-    for (const [bankKey, cardId] of cardsByBankKey) {
-      if (!m.includes(bankKey)) continue
-      const addon =
-        itemizedByCardMonth.get(`${cardId}-${t.occurred_on.slice(0, 7)}`) ?? 0
-      return base + addon
-    }
-    return base
-  }
+  const effectiveAmountCents = makeEffectiveAmountFn({
+    cardsByBankKey,
+    itemizedByCardMonth,
+  })
 
-  const filteredUpcoming = (upcomingTx ?? [])
-    .filter((t) => !creditIdsForFilter.has(t.account_id))
+  const filteredUpcoming = upcomingTx
+    .filter((t) => !creditAccountIdSet.has(t.account_id))
     .slice(0, 5)
   const upcomingNet = filteredUpcoming.reduce(
     (sum, t) =>
@@ -509,24 +109,9 @@ export default async function DashboardPage() {
   )
 
   const hasGroqKey = !!process.env.GROQ_API_KEY
-  const hasAccounts = (accounts ?? []).length > 0
+  const hasAccounts = accounts.length > 0
 
-  // Optional — present only after migration 0017. Used to seed the weather
-  // widget with the user's state-capital coordinates.
-  let cityName: string | null = null
-  let uf: string | null = null
-  try {
-    const locRes = await supabase
-      .from("profiles")
-      .select("city_name, uf")
-      .eq("user_id", user.id)
-      .maybeSingle()
-    cityName = locRes.data?.city_name ?? null
-    uf = locRes.data?.uf ?? null
-  } catch {
-    /* columns don't exist yet */
-  }
-  const coords = (uf && UF_CENTROIDS[uf]) || null
+  const coords = (location.uf && UF_CENTROIDS[location.uf]) || null
 
   // Per-user AI commentary on monthly / 6m / 12m net flow (entradas − saídas,
   // ignoring transfers). Single Groq call; silently empty when key missing.
@@ -565,23 +150,28 @@ export default async function DashboardPage() {
 
       <KpiOverview
         heroAside={
-          <ClockWeather cityName={cityName} uf={uf} coords={coords} compact />
+          <ClockWeather
+            cityName={location.cityName}
+            uf={location.uf}
+            coords={coords}
+            compact
+          />
         }
         trendExplanations={trendExplanations}
         last12={monthly}
         totalBalanceCents={totalBalanceCents}
-        liquidCents={liquidCents}
-        savingsCents={savingsCents}
-        investmentCents={investmentCents}
-        cryptoCents={cryptoCents}
-        fgtsCents={fgtsCents}
-        creditCents={creditCents}
-        liquidAccounts={liquidAccounts}
-        savingsAccounts={savingsAccounts}
-        investmentAccounts={investmentAccounts}
-        cryptoAccounts={cryptoAccounts}
-        fgtsAccounts={fgtsAccounts}
-        creditAccounts={creditAccounts}
+        liquidCents={totals.liquidCents}
+        savingsCents={totals.savingsCents}
+        investmentCents={totals.investmentCents}
+        cryptoCents={totals.cryptoCents}
+        fgtsCents={totals.fgtsCents}
+        creditCents={totals.creditCents}
+        liquidAccounts={grouped.liquidAccounts}
+        savingsAccounts={grouped.savingsAccounts}
+        investmentAccounts={grouped.investmentAccounts}
+        cryptoAccounts={grouped.cryptoAccounts}
+        fgtsAccounts={grouped.fgtsAccounts}
+        creditAccounts={grouped.creditAccounts}
       />
 
       <Card>
@@ -597,7 +187,7 @@ export default async function DashboardPage() {
       </Card>
 
       <PendingCaptures
-        captures={(pendingCaptures ?? [])
+        captures={pendingCaptures
           .filter((c) => {
             const p = c.groq_parse_json as { amount_cents?: number } | null
             return !!p && typeof p.amount_cents === "number"
@@ -633,72 +223,12 @@ export default async function DashboardPage() {
         }))}
       />
 
-      {filteredUpcoming.length > 0 && (
-        <Card>
-          <CardContent className="space-y-3 p-5">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <h2 className="text-sm font-medium text-strong">
-                  Agendadas · ainda não pagas
-                </h2>
-                <p className="text-xs text-muted">
-                  Total a vencer:{" "}
-                  <span
-                    className={`font-mono tabular-nums ${
-                      upcomingNet < 0 ? "text-expense" : "text-income"
-                    }`}
-                  >
-                    {formatBRL(upcomingNet)}
-                  </span>
-                  . Marque como paga ao editar para incluir no saldo.
-                </p>
-              </div>
-            </div>
-            <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
-              {filteredUpcoming.map((t) => {
-                const isIncome = t.type === "income"
-                return (
-                  <li key={t.id}>
-                    <Link
-                      href={`/app/transacoes/${t.id}`}
-                      className="group flex items-center gap-4 px-4 py-3 text-sm transition-colors hover:bg-subtle"
-                    >
-                      <span
-                        className={`flex h-7 w-7 items-center justify-center rounded-full ${
-                          isIncome ? "bg-income/10" : "bg-expense/10"
-                        }`}
-                      >
-                        {isIncome ? (
-                          <ArrowUp className="h-3.5 w-3.5 text-income" />
-                        ) : (
-                          <ArrowDown className="h-3.5 w-3.5 text-expense" />
-                        )}
-                      </span>
-                      <div className="flex-1">
-                        <p className="truncate font-medium text-strong">
-                          {t.merchant ?? t.note ?? "Sem descrição"}
-                        </p>
-                        <p className="text-xs text-muted">
-                          {formatPtBrDateShort(t.occurred_on)} ·{" "}
-                          {accountNameMap.get(t.account_id) ?? "conta"}
-                        </p>
-                      </div>
-                      <p
-                        className={`font-mono text-sm font-semibold tabular-nums ${
-                          isIncome ? "text-income" : "text-expense"
-                        }`}
-                      >
-                        {isIncome ? "+" : "−"} {formatBRL(effectiveAmountCents(t))}
-                      </p>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                  </li>
-                )
-              })}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+      <UpcomingList
+        items={filteredUpcoming}
+        upcomingNet={upcomingNet}
+        accountNameMap={accountNameMap}
+        effectiveAmountCents={effectiveAmountCents}
+      />
 
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
@@ -708,24 +238,10 @@ export default async function DashboardPage() {
           </a>
         </div>
         <RecentTransactions
-          transactions={(recentTx ?? [])
-            .filter(
-              (t: { account_id: string }) => !creditIdsForFilter.has(t.account_id),
-            )
+          transactions={recentTx
+            .filter((t) => !creditAccountIdSet.has(t.account_id))
             .slice(0, 50)
-            .map((t: {
-              id: string
-              type: string
-              amount_cents: number
-              occurred_on: string
-              merchant: string | null
-              note: string | null
-              needs_review: boolean | null
-              account_id: string
-              category_id: string | null
-              created_at: string
-              paid_at: string | null
-            }) => ({
+            .map((t) => ({
               id: t.id,
               type: t.type as "income" | "expense",
               amount_cents: effectiveAmountCents(t),
@@ -739,7 +255,7 @@ export default async function DashboardPage() {
               paid_at: t.paid_at,
             }))}
           accounts={accountsWithBalance}
-          categories={categories ?? []}
+          categories={categories}
         />
       </section>
     </div>
