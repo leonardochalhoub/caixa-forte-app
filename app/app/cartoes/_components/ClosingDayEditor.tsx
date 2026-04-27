@@ -19,8 +19,8 @@ export function ClosingDayEditor({
 
   function save() {
     const day = Number(value)
-    if (!Number.isFinite(day) || day < 1 || day > 31) {
-      toast.error("Dia inválido (1–31).")
+    if (!Number.isFinite(day) || day < 1 || day > 28) {
+      toast.error("Dia inválido (1–28).")
       return
     }
     if (day === closingDay) {
@@ -66,7 +66,7 @@ export function ClosingDayEditor({
         type="number"
         inputMode="numeric"
         min={1}
-        max={31}
+        max={28}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {

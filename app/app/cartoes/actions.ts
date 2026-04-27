@@ -9,7 +9,7 @@ import { untyped } from "@/lib/supabase/untyped"
 const CreateCardSchema = z.object({
   bank: z.string().trim().min(1).max(60),
   nickname: z.string().trim().max(60).optional(),
-  closingDay: z.number().int().min(1).max(31).optional(),
+  closingDay: z.number().int().min(1).max(28).optional(),
 })
 
 export async function createCreditCardAction(
@@ -41,7 +41,7 @@ export async function createCreditCardAction(
 
 const UpdateClosingDaySchema = z.object({
   cardId: z.string().uuid(),
-  closingDay: z.number().int().min(1).max(31),
+  closingDay: z.number().int().min(1).max(28),
 })
 
 export async function updateClosingDayAction(

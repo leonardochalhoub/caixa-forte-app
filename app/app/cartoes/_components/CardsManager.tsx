@@ -30,8 +30,8 @@ export function CardsManager({
     event.preventDefault()
     if (!bank.trim()) return
     const day = Number(closingDay)
-    if (!Number.isFinite(day) || day < 1 || day > 31) {
-      toast.error("Dia de fechamento deve ser entre 1 e 31.")
+    if (!Number.isFinite(day) || day < 1 || day > 28) {
+      toast.error("Dia de fechamento deve ser entre 1 e 28.")
       return
     }
     start(async () => {
@@ -94,7 +94,7 @@ export function CardsManager({
                 type="number"
                 inputMode="numeric"
                 min={1}
-                max={31}
+                max={28}
                 value={closingDay}
                 onChange={(e) => setClosingDay(e.target.value)}
                 required
