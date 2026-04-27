@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+import Link from "next/link"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import type { AccountType } from "@/lib/types"
@@ -13,9 +14,13 @@ import { KpiOverview } from "./_components/KpiOverview"
 import { PendingCaptures } from "./_components/PendingCaptures"
 import { QuickCapture } from "./_components/QuickCapture"
 import { RecentTransactions } from "./_components/RecentTransactions"
-import { TrendStrip } from "./_components/TrendStrip"
 import { UpcomingList } from "./_components/UpcomingList"
-import { PatrimonyTrend } from "./_components/PatrimonyTrend"
+// Recharts via lazy boundary — economiza ~95KB no JS inicial do /app.
+// (Conselho v4 vercel-perf)
+import {
+  PatrimonyTrendLazy as PatrimonyTrend,
+  TrendStripLazy as TrendStrip,
+} from "./_components/LazyCharts"
 import {
   fetchAllExpenseTx,
   fetchCardCalcTxs,
@@ -251,9 +256,9 @@ export default async function DashboardPage() {
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-sm font-medium text-strong">Últimas transações</h2>
-          <a href="/app/transacoes" className="text-sm text-muted hover:text-strong">
+          <Link href="/app/transacoes" className="text-sm text-muted hover:text-strong">
             Ver todas →
-          </a>
+          </Link>
         </div>
         <RecentTransactions
           transactions={recentTx

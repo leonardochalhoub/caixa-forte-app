@@ -79,7 +79,13 @@ export function HeroBalance({
               <Wallet className="h-5 w-5 text-strong" />
             </div>
             <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
+              {/* aria-hidden no rótulo: aria-label do <p> abaixo já contém
+                  "Saldo total agora: VALOR". Sem isso, leitor de tela lê
+                  duplicado. Conselheira Design v4 flagged. */}
+              <p
+                className="text-[10px] uppercase tracking-[0.22em] text-muted"
+                aria-hidden="true"
+              >
                 Saldo total agora
               </p>
               {/* Fluid sizing: clamp(min, preferred-vw, max) escala com a
@@ -106,7 +112,10 @@ export function HeroBalance({
 
         <div className="grid gap-6 text-center md:grid-cols-3">
           <div className="flex flex-col items-center space-y-2">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
+            <p
+              className="text-[10px] uppercase tracking-[0.22em] text-muted"
+              aria-hidden="true"
+            >
               Saldo do mês · {monthLabel}
             </p>
             <p
@@ -132,8 +141,11 @@ export function HeroBalance({
           </div>
 
           <div className="flex flex-col items-center">
-            <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted">
-              <ArrowUp className="h-3 w-3 text-income" aria-hidden />
+            <p
+              className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted"
+              aria-hidden="true"
+            >
+              <ArrowUp className="h-3 w-3 text-income" />
               Entrada do mês
             </p>
             <p
@@ -145,8 +157,11 @@ export function HeroBalance({
           </div>
 
           <div className="flex flex-col items-center">
-            <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted">
-              <ArrowDown className="h-3 w-3 text-expense" aria-hidden />
+            <p
+              className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted"
+              aria-hidden="true"
+            >
+              <ArrowDown className="h-3 w-3 text-expense" />
               Saída do mês
             </p>
             <p

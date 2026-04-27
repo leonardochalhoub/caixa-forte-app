@@ -20,31 +20,81 @@ function normalize(s: string): string {
     .trim()
 }
 
+// Levenshtein distance — usado pra fuzzy match singular/plural e typos
+// próximos. Implementação iterativa O(m*n), suficiente pros tamanhos
+// curtos de nomes de categoria.
+export function levenshtein(a: string, b: string): number {
+  if (a === b) return 0
+  if (a.length === 0) return b.length
+  if (b.length === 0) return a.length
+  const m = a.length
+  const n = b.length
+  let prev = new Array<number>(n + 1)
+  let curr = new Array<number>(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      curr[j] = Math.min(
+        curr[j - 1]! + 1, // insertion
+        prev[j]! + 1, // deletion
+        prev[j - 1]! + cost, // substitution
+      )
+    }
+    ;[prev, curr] = [curr, prev]
+  }
+  return prev[n]!
+}
+
+// Match com tolerância de 1-2 edits pra cobrir singular/plural e typos
+// pequenos sem ser permissivo demais. "Restaurante" vs "Restaurantes" = 1.
+// Conselho v4 (genai-architect): "resolveCategoryId sem fuzzy match —
+// LLM retorna 'Restaurante' e user tem 'Restaurantes' → cria duplicata."
+function fuzzyEqual(a: string, b: string): boolean {
+  const na = normalize(a)
+  const nb = normalize(b)
+  if (na === nb) return true
+  if (na.length < 4 || nb.length < 4) return false
+  const maxLen = Math.max(na.length, nb.length)
+  // Tolerância proporcional: 1 edit pra ≤6 chars, 2 pra ≤12, 3 pra >12.
+  const tolerance = maxLen <= 6 ? 1 : maxLen <= 12 ? 2 : 3
+  return levenshtein(na, nb) <= tolerance
+}
+
 export function resolveCategoryId(
   parsed: Pick<ParseResult, "category_name" | "subcategory_name" | "type">,
   categories: CategoryRow[],
 ): string | null {
-  const wantedIncome = parsed.type === "income"
   const parents = categories.filter((c) => c.parent_id === null)
-  const parentMatch = parents.find(
+
+  // Caminho 1: match exato (rápido, prioritário).
+  let parentMatch = parents.find(
     (p) => normalize(p.name) === normalize(parsed.category_name),
   )
 
+  // Caminho 2: fuzzy (Levenshtein ≤ tolerância). "Restaurante" → "Restaurantes".
   if (!parentMatch) {
-    // Fallback: match any category (parent or child) by name
-    const any = categories.find((c) => normalize(c.name) === normalize(parsed.category_name))
-    if (!any) return null
-    return any.id
+    parentMatch = parents.find((p) => fuzzyEqual(p.name, parsed.category_name))
+  }
+
+  if (!parentMatch) {
+    // Fallback: match em qualquer categoria (parent ou child) com fuzzy.
+    const exact = categories.find((c) => normalize(c.name) === normalize(parsed.category_name))
+    if (exact) return exact.id
+    const fuzzy = categories.find((c) => fuzzyEqual(c.name, parsed.category_name))
+    return fuzzy?.id ?? null
   }
 
   if (!parsed.subcategory_name) return parentMatch.id
 
-  const children = categories.filter((c) => c.parent_id === parentMatch.id)
-  const childMatch = children.find(
+  const children = categories.filter((c) => c.parent_id === parentMatch!.id)
+  const exactChild = children.find(
     (c) => normalize(c.name) === normalize(parsed.subcategory_name!),
   )
-  // If child match requested but not found, fall back to parent
-  return childMatch?.id ?? parentMatch.id
+  if (exactChild) return exactChild.id
+  const fuzzyChild = children.find((c) => fuzzyEqual(c.name, parsed.subcategory_name!))
+  return fuzzyChild?.id ?? parentMatch.id
 }
 
 const UUID_RE =

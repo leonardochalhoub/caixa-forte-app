@@ -27,6 +27,11 @@
 ![Built for BR](https://img.shields.io/badge/built%20for-🇧🇷%20brasileiros-0ea5e9)
 ![LGPD](https://img.shields.io/badge/LGPD-ready-000)
 
+[![CI](https://github.com/leonardochalhoub/caixa-forte-app/actions/workflows/ci.yml/badge.svg)](https://github.com/leonardochalhoub/caixa-forte-app/actions/workflows/ci.yml)
+![Tests](https://img.shields.io/badge/tests-90%20passing-22c55e?style=flat)
+![Migrations](https://img.shields.io/badge/migrations-54%20applied-3ECF8E?style=flat)
+![ADRs](https://img.shields.io/badge/ADRs-6-000?style=flat)
+
 </div>
 
 ---
@@ -197,6 +202,7 @@ Abra http://localhost:3000.
 | `GROQ_CHAT_MODEL` | Default: `llama-3.3-70b-versatile` |
 | `GROQ_WHISPER_MODEL` | Default: `whisper-large-v3` |
 | `GROQ_PARSER_FALLBACK_MODEL` | Default: `llama-3.1-8b-instant` (usado só em 429) |
+| `LLM_PROVIDER` | Default: `groq`. Abstração em `lib/llm/provider.ts` permite trocar provider em 1 arquivo. |
 | `TELEGRAM_BOT_TOKEN` | Do BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | 32+ chars aleatórios (`openssl rand -hex 32`) |
 | `TELEGRAM_BOT_USERNAME` | Username do bot, sem `@` |
@@ -212,11 +218,14 @@ Abra http://localhost:3000.
 |---|---|---|
 | **M1** | ✅ Shipped | Captura web (voz + texto), multi-conta, KPIs, categorias |
 | **M1.5** | ✅ Shipped | Sysadmin, IBGE cidades, soft-delete, privacidade, clock+weather, paid_at, docs |
-| **M2** | 🚧 Em construção | Bot Telegram (código pronto, webhook registrado) |
-| **M2** | 📋 Planejado | Snapshots diários do patrimônio para charts de tendência precisos |
-| **M3** | 📋 Planejado | Recorrências (aluguel, mensalidade, assinaturas) |
-| **M3** | 📋 Planejado | Chat com seu dinheiro (tool-calling Groq + RLS) |
-| **M4** | 📋 Planejado | Alertas inteligentes via Telegram |
+| **M2** | ✅ Shipped | Bot Telegram com áudio + texto, idempotência, fuzzy account match |
+| **M2** | ✅ Shipped | Snapshots diários do patrimônio (cron + UI PatrimonyTrend de 90d) |
+| **M2.5** | ✅ Shipped | Cartão de crédito como conta + faturas + pay_invoice atômico + idempotência |
+| **M2.5** | ✅ Shipped | Balanço Patrimonial + DRE + Conciliação com FIPE auto-sync |
+| **M3** | 📋 Próximo | Recorrências (aluguel, mensalidade, assinaturas) |
+| **M3** | 📋 Próximo | Chat com seu dinheiro (tool-calling Groq + RLS) |
+| **M3** | 📋 Próximo | Onboarding guiado pro 1º usuário não-técnico |
+| **M4** | 💭 Imaginado | Alertas inteligentes via Telegram |
 | **?** | 💭 Imaginado | Portfolio & cripto com preço em tempo real |
 
 &nbsp;
@@ -252,12 +261,13 @@ Abra http://localhost:3000.
 
 ## 🤝 Contribuindo
 
-PRs bem-vindos. Issues bem-vindos. Fork bem-vindo.
+PRs bem-vindos. Issues bem-vindos. Fork bem-vindo. **Veja [CONTRIBUTING.md](CONTRIBUTING.md)** pro fluxo completo.
 
-1. Abra uma issue antes de grandes PRs.
-2. Siga a estrutura existente (Server Actions em `app/app/*/actions.ts`, lib em `lib/`, componentes em `components/` ou `_components/`).
-3. TypeScript strict — rode `npx tsc --noEmit` antes do push.
-4. Testes relevantes em `tests/` (Vitest + Playwright).
+Resumo:
+- TypeScript strict + ESLint flat config — rode `npm run typecheck && npm run lint && npm test` antes do push
+- 90 unit tests passando + 6 ADRs documentando decisões grandes em [`docs/adr/`](docs/adr/)
+- CI roda automaticamente em todo PR ([badge no topo](#))
+- Filosofia: **útil mas simples**. Grátis pra sempre. Open-source MIT.
 
 &nbsp;
 

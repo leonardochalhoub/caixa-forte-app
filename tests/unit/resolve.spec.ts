@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveAccountId, resolveCategoryId } from "@/lib/parser/resolve"
+import { resolveAccountId, resolveCategoryId, levenshtein } from "@/lib/parser/resolve"
 
 const ACCOUNTS = [
   { id: "00000000-0000-0000-0000-000000000001", name: "Nubank Conta" },
@@ -145,5 +145,55 @@ describe("resolveCategoryId", () => {
         CATS,
       ),
     ).toBeNull()
+  })
+
+  it("singular/plural via fuzzy: 'Restaurante' casa 'Restaurantes' (Levenshtein 1)", () => {
+    // LLM retorna "Restaurante" mas user tem "Restaurantes" — sem fuzzy
+    // criava duplicata. Conselho v4 (genai-architect).
+    expect(
+      resolveCategoryId(
+        { category_name: "Restaurante", subcategory_name: null, type: "expense" },
+        CATS,
+      ),
+    ).toBe("c1-1") // c1-1 é "Restaurantes"
+  })
+
+  it("typo pequeno via fuzzy: 'Mercaado' casa 'Mercado' (Levenshtein 1)", () => {
+    expect(
+      resolveCategoryId(
+        { category_name: "Alimentação", subcategory_name: "Mercaado", type: "expense" },
+        CATS,
+      ),
+    ).toBe("c1-2") // c1-2 é "Mercado"
+  })
+
+  it("nome muito diferente NÃO casa via fuzzy: 'Lazer' não vira 'Salário'", () => {
+    expect(
+      resolveCategoryId(
+        { category_name: "Lazer", subcategory_name: null, type: "expense" },
+        CATS,
+      ),
+    ).toBeNull()
+  })
+})
+
+describe("levenshtein", () => {
+  it("identidade → 0", () => {
+    expect(levenshtein("abc", "abc")).toBe(0)
+    expect(levenshtein("", "")).toBe(0)
+  })
+
+  it("string vazia → length da outra", () => {
+    expect(levenshtein("", "abc")).toBe(3)
+    expect(levenshtein("abc", "")).toBe(3)
+  })
+
+  it("substituição simples", () => {
+    expect(levenshtein("kitten", "sitten")).toBe(1)
+    expect(levenshtein("kitten", "sitting")).toBe(3)
+  })
+
+  it("plural pt-BR: restaurante ↔ restaurantes", () => {
+    expect(levenshtein("restaurante", "restaurantes")).toBe(1)
   })
 })

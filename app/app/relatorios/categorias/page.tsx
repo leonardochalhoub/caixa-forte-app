@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
+import Link from "next/link"
 import { Tags } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
@@ -283,12 +284,12 @@ export default async function CategoriasPage({
             {semCategoria.txIds.length > 10 && (
               <li className="pt-1 text-[11px] text-muted">
                 + {semCategoria.txIds.length - 10} outras —{" "}
-                <a
+                <Link
                   href="/app/transacoes"
                   className="underline-offset-4 hover:text-strong hover:underline"
                 >
                   ver todas
-                </a>
+                </Link>
               </li>
             )}
           </ul>

@@ -1,12 +1,9 @@
 name: CI
 
-# Conselho v2 (mirante:eng-software, mirante:financas) flagaram CI=2/10:
-# "Tudo o que está montado depende do dev rodar npm test localmente.
-# Inaceitável dado o investimento em testes."
-#
-# Pipeline mínimo: typecheck + lint + unit tests em cada PR e push.
-# E2E (Playwright) e RLS integration ficam pra workflow separado quando
-# forem ativados em CI (precisam Supabase local + secrets).
+# Conselho v2-v4 cobrou CI cobrindo typecheck, lint, tests + RLS
+# integration condicional (requer secrets do Supabase de teste).
+# E2E Playwright fica pra workflow separado (precisa Supabase local
+# em docker-compose, esforço de outra ordem).
 
 on:
   push:
@@ -40,6 +37,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
       - name: Unit tests
         run: npm test
         env:
@@ -49,7 +49,15 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: "https://ci.placeholder.supabase.co"
           NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
 
-      # Lint deixado fora do CI por incompatibilidade ESLint v9 ↔
-      # eslint-config-next 16. Reabilitar quando Next.js fornecer flat
-      # config oficial. `npm run lint` ainda roda local com .eslintrc.json
-      # (legacy ESLint API).
+      # RLS integration roda só quando secrets estão setados.
+      # Configurar em GitHub Secrets:
+      #   SUPABASE_TEST_URL, SUPABASE_TEST_ANON_KEY, SUPABASE_TEST_SERVICE_KEY
+      # Apontando pra um project de teste separado (NÃO usar prod).
+      # Sem os secrets, este step roda mas vitest skipa via maybeDescribe.
+      - name: RLS integration tests (conditional)
+        if: env.SUPABASE_TEST_URL != ''
+        run: npm test -- tests/integration/rls.spec.ts
+        env:
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_TEST_SERVICE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_KEY }}
