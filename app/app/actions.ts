@@ -1,9 +1,11 @@
-"use server"
-
-// Server Actions barrel — re-exporta as actions específicas dos
-// módulos em ./actions/. Cada módulo é um "use server" file por si só;
-// este barrel só preserva a API pública usada por imports
-// `from "../actions"` espalhados pela UI.
+// Server Actions barrel. NÃO usa "use server" diretamente — Turbopack
+// (Next 16) reclama de "use server" + re-exports juntos no mesmo arquivo
+// (build error: "Export X doesn't exist in target module").
+//
+// Os módulos em ./actions/*.ts têm seu próprio "use server" no topo
+// e definem as actions. Este arquivo só re-exporta nominalmente pra
+// preservar a API pública usada por imports `from "../actions"`
+// espalhados pela UI.
 
 export {
   createTransactionAction,
