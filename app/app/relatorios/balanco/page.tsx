@@ -55,19 +55,18 @@ export default async function BalancoPage({
       fetchBalancoRegistries(supabase, user.id, periodStr),
     ])
 
-  // Auto-sync FIPE: ao abrir um período mensal, propaga ajustes FIPE
-  // dos outros períodos pra esse, atualizando preço com cotação FIPE
-  // quando possível. Lógica em lib/reports/balanco-fipe-sync.ts.
+  // Auto-sync FIPE: ao abrir QUALQUER período (mensal ou anual), propaga
+  // ajustes FIPE existentes pra esse period. Sem isso, mudar de
+  // "mensal:2026-04" pra "anual:2026" some com o ajuste do carro
+  // (a query filtra por period exato). Bug reportado pelo user.
   let adjustments = adjustmentsRaw
-  if (period.kind === "mensal") {
-    const newAdjs = await autoSyncFipeForPeriod(
-      supabase,
-      user.id,
-      periodStr,
-      adjustments,
-    )
-    if (newAdjs.length > 0) adjustments = [...adjustments, ...newAdjs]
-  }
+  const newAdjs = await autoSyncFipeForPeriod(
+    supabase,
+    user.id,
+    periodStr,
+    adjustments,
+  )
+  if (newAdjs.length > 0) adjustments = [...adjustments, ...newAdjs]
 
   // === Agregações ===
   const adjustmentsBySection = groupAdjustmentsBySection(adjustments)
