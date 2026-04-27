@@ -4,7 +4,6 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { getUser, requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
 import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
 
@@ -23,7 +22,7 @@ export async function createBalanceAdjustmentAction(
   const parsed = CreateSchema.parse(input)
   const supabase = await createServerClient()
   const lineKey = `custom:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
-  const { data, error } = await untyped(supabase)
+  const { data, error } = await supabase
     .from("balance_adjustments")
     .insert({
       user_id: user.id,
@@ -53,7 +52,7 @@ export async function updateBalanceAdjustmentAction(
   const user = await requireUser()
   const parsed = UpdateSchema.parse(input)
   const supabase = await createServerClient()
-  const { error } = await untyped(supabase)
+  const { error } = await supabase
     .from("balance_adjustments")
     .update({
       label: parsed.label,
@@ -70,7 +69,7 @@ export async function updateBalanceAdjustmentAction(
 export async function refreshFipeAdjustmentAction(id: string) {
   const user = await requireUser()
   const supabase = await createServerClient()
-  const { data, error } = await untyped(supabase)
+  const { data, error } = await supabase
     .from("balance_adjustments")
     .select("id, metadata, label")
     .eq("id", id)
@@ -78,7 +77,9 @@ export async function refreshFipeAdjustmentAction(id: string) {
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) throw new Error("Linha não encontrada.")
-  const meta = (data as { metadata?: FipeMetadata }).metadata
+  // metadata é Json no schema; cast pra FipeMetadata pra usar shape
+  // específico aqui (validado por meta.source === 'fipe' abaixo).
+  const meta = data.metadata as unknown as FipeMetadata | null
   if (!meta || meta.source !== "fipe") {
     throw new Error("Essa linha não tem origem FIPE.")
   }
@@ -88,11 +89,11 @@ export async function refreshFipeAdjustmentAction(id: string) {
     last_checked_at: new Date().toISOString(),
     last_reference_month: price.referenceMonth,
   }
-  const { error: updErr } = await untyped(supabase)
+  const { error: updErr } = await supabase
     .from("balance_adjustments")
     .update({
       amount_cents: price.priceCents,
-      metadata: newMeta,
+      metadata: newMeta as never,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id)
@@ -226,7 +227,7 @@ export async function createBalanceRegistryAction(
 
     const supabase = await createServerClient()
 
-    const { data: reg, error: regErr } = await untyped(supabase)
+    const { data: reg, error: regErr } = await supabase
       .from("balance_registries")
       .insert({
         user_id: user.id,
@@ -270,7 +271,7 @@ export async function createBalanceRegistryAction(
         metadata: { registry_id: registryId, role: "credit", kind: parsed.kind },
       },
     ]
-    const { error: adjErr } = await untyped(supabase)
+    const { error: adjErr } = await supabase
       .from("balance_adjustments")
       .insert(pair)
     if (adjErr) {
@@ -299,13 +300,13 @@ export async function deleteBalanceRegistryAction(registryId: string) {
   const user = await requireUser()
   const supabase = await createServerClient()
   // Apaga os 2 adjustments do par
-  await untyped(supabase)
+  await supabase
     .from("balance_adjustments")
     .delete()
     .eq("user_id", user.id)
     .eq("metadata->>registry_id", registryId)
   // Apaga o registro
-  const { error } = await untyped(supabase)
+  const { error } = await supabase
     .from("balance_registries")
     .delete()
     .eq("id", registryId)
@@ -317,7 +318,7 @@ export async function deleteBalanceRegistryAction(registryId: string) {
 export async function deleteBalanceAdjustmentAction(id: string) {
   const user = await requireUser()
   const supabase = await createServerClient()
-  const { error } = await untyped(supabase)
+  const { error } = await supabase
     .from("balance_adjustments")
     .delete()
     .eq("id", id)
