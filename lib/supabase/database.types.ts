@@ -14,9 +14,50 @@ export type Database = {
   }
   public: {
     Tables: {
+      _applied_migrations: {
+        Row: {
+          applied_at: string
+          filename: string
+        }
+        Insert: {
+          applied_at?: string
+          filename: string
+        }
+        Update: {
+          applied_at?: string
+          filename?: string
+        }
+        Relationships: []
+      }
+      account_lifecycle_events: {
+        Row: {
+          event_type: string
+          happened_at: string
+          id: number
+          note: string | null
+          user_id: string
+        }
+        Insert: {
+          event_type: string
+          happened_at?: string
+          id?: number
+          note?: string | null
+          user_id: string
+        }
+        Update: {
+          event_type?: string
+          happened_at?: string
+          id?: number
+          note?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       accounts: {
         Row: {
           archived_at: string | null
+          balance_classification: string | null
+          closing_day: number | null
           color_hex: string | null
           created_at: string
           id: string
@@ -28,6 +69,8 @@ export type Database = {
         }
         Insert: {
           archived_at?: string | null
+          balance_classification?: string | null
+          closing_day?: number | null
           color_hex?: string | null
           created_at?: string
           id?: string
@@ -39,6 +82,8 @@ export type Database = {
         }
         Update: {
           archived_at?: string | null
+          balance_classification?: string | null
+          closing_day?: number | null
           color_hex?: string | null
           created_at?: string
           id?: string
@@ -117,6 +162,90 @@ export type Database = {
           name?: string
           rule_json?: Json
           updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      balance_adjustments: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          id: string
+          label: string
+          line_key: string
+          metadata: Json | null
+          note: string | null
+          period: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          id?: string
+          label: string
+          line_key: string
+          metadata?: Json | null
+          note?: string | null
+          period: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          id?: string
+          label?: string
+          line_key?: string
+          metadata?: Json | null
+          note?: string | null
+          period?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      balance_registries: {
+        Row: {
+          amount_cents: number
+          created_at: string
+          credit_label: string
+          credit_section: string
+          debit_label: string
+          debit_section: string
+          description: string
+          id: string
+          kind: string
+          note: string | null
+          period: string
+          user_id: string
+        }
+        Insert: {
+          amount_cents: number
+          created_at?: string
+          credit_label: string
+          credit_section: string
+          debit_label: string
+          debit_section: string
+          description: string
+          id?: string
+          kind: string
+          note?: string | null
+          period: string
+          user_id: string
+        }
+        Update: {
+          amount_cents?: number
+          created_at?: string
+          credit_label?: string
+          credit_section?: string
+          debit_label?: string
+          debit_section?: string
+          description?: string
+          id?: string
+          kind?: string
+          note?: string | null
+          period?: string
           user_id?: string
         }
         Relationships: []
@@ -227,6 +356,36 @@ export type Database = {
           },
         ]
       }
+      cities_br: {
+        Row: {
+          capital: boolean
+          created_at: string
+          ibge_id: number
+          lat: number | null
+          lng: number | null
+          name: string
+          uf: string
+        }
+        Insert: {
+          capital?: boolean
+          created_at?: string
+          ibge_id: number
+          lat?: number | null
+          lng?: number | null
+          name: string
+          uf: string
+        }
+        Update: {
+          capital?: boolean
+          created_at?: string
+          ibge_id?: number
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          uf?: string
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           channel: string
@@ -250,6 +409,75 @@ export type Database = {
           last_message_at?: string | null
           started_at?: string
           title?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      demo_clicks: {
+        Row: {
+          created_at: string
+          id: string
+          ip_hash: string | null
+          referrer: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          referrer?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      doc_clicks: {
+        Row: {
+          clicked_at: string
+          id: number
+          source: string
+          user_id: string | null
+        }
+        Insert: {
+          clicked_at?: string
+          id?: number
+          source: string
+          user_id?: string | null
+        }
+        Update: {
+          clicked_at?: string
+          id?: number
+          source?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      login_events: {
+        Row: {
+          happened_at: string
+          id: number
+          ip: string | null
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          happened_at?: string
+          id?: number
+          ip?: string | null
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          happened_at?: string
+          id?: number
+          ip?: string | null
+          user_agent?: string | null
           user_id?: string
         }
         Relationships: []
@@ -291,26 +519,56 @@ export type Database = {
       }
       profiles: {
         Row: {
+          birthday: string | null
+          city_ibge: number | null
+          city_name: string | null
           created_at: string
+          deleted_at: string | null
           display_name: string | null
+          gender: string | null
+          is_demo: boolean
+          lat: number | null
+          lng: number | null
           onboarded_at: string | null
+          role: string
           telegram_chat_id: number | null
+          uf: string | null
           updated_at: string | null
           user_id: string
         }
         Insert: {
+          birthday?: string | null
+          city_ibge?: number | null
+          city_name?: string | null
           created_at?: string
+          deleted_at?: string | null
           display_name?: string | null
+          gender?: string | null
+          is_demo?: boolean
+          lat?: number | null
+          lng?: number | null
           onboarded_at?: string | null
+          role?: string
           telegram_chat_id?: number | null
+          uf?: string | null
           updated_at?: string | null
           user_id: string
         }
         Update: {
+          birthday?: string | null
+          city_ibge?: number | null
+          city_name?: string | null
           created_at?: string
+          deleted_at?: string | null
           display_name?: string | null
+          gender?: string | null
+          is_demo?: boolean
+          lat?: number | null
+          lng?: number | null
           onboarded_at?: string | null
+          role?: string
           telegram_chat_id?: number | null
+          uf?: string | null
           updated_at?: string | null
           user_id?: string
         }
@@ -337,6 +595,27 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_processed_updates: {
+        Row: {
+          chat_id: number
+          processed_at: string
+          update_id: number
+          user_id: string | null
+        }
+        Insert: {
+          chat_id: number
+          processed_at?: string
+          update_id: number
+          user_id?: string | null
+        }
+        Update: {
+          chat_id?: number
+          processed_at?: string
+          update_id?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       transactions: {
         Row: {
           account_id: string
@@ -351,6 +630,7 @@ export type Database = {
           needs_review: boolean | null
           note: string | null
           occurred_on: string
+          paid_at: string | null
           raw_input: string | null
           source: string
           type: string
@@ -370,6 +650,7 @@ export type Database = {
           needs_review?: boolean | null
           note?: string | null
           occurred_on: string
+          paid_at?: string | null
           raw_input?: string | null
           source: string
           type: string
@@ -389,6 +670,7 @@ export type Database = {
           needs_review?: boolean | null
           note?: string | null
           occurred_on?: string
+          paid_at?: string | null
           raw_input?: string | null
           source?: string
           type?: string
