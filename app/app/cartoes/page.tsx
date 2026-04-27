@@ -160,11 +160,26 @@ export default async function CartoesPage() {
       return !!bankKey && m.includes(bankKey)
     })
 
+    // Pagamentos via botão "Pagar fatura" (payInvoiceAction): cria
+    // par transfer (saída na corrente + entrada no cartão, ambos
+    // is_transfer=true). A entrada NA CONTA DO CARTÃO é o que
+    // representa "fatura paga" via transfer. Bucketed pelo mês no
+    // merchant ("Pagamento fatura ... · Abril 2026").
+    const transferPayments = allTxs.filter(
+      (t) =>
+        t.account_id === card.id &&
+        t.is_transfer === true &&
+        t.type === "income",
+    )
+
     type MonthBucket = {
       lumpSumCents: number
       itemized: InvoiceCharge[]
       lumpSumEntries: InvoiceCharge[]
       paidCents: number
+      // Pagamentos via transfer pair (botão "Pagar"). Independente
+      // do lump-sum agendado.
+      transferPaidCents: number
     }
     const byMonth = new Map<string, MonthBucket>()
     const ensure = (key: string): MonthBucket => {
@@ -173,6 +188,7 @@ export default async function CartoesPage() {
         itemized: [],
         lumpSumEntries: [],
         paidCents: 0,
+        transferPaidCents: 0,
       }
       byMonth.set(key, b)
       return b
@@ -206,6 +222,11 @@ export default async function CartoesPage() {
       })
       if (t.paid_at) b.paidCents += Number(t.amount_cents)
     }
+    for (const t of transferPayments) {
+      const key = lumpSumInvoiceMonth(t.merchant, t.occurred_on)
+      const b = ensure(key)
+      b.transferPaidCents += Number(t.amount_cents)
+    }
 
     const invoices = [...byMonth.entries()]
       .sort((a, b) => (a[0] < b[0] ? 1 : -1))
@@ -218,16 +239,17 @@ export default async function CartoesPage() {
         // Lump-sum = valor BASE da fatura (original). Itemizados são
         // compras novas que ENTRAM em cima. Total = base + novas.
         const totalCents = v.lumpSumCents + itemizedCents
-        const allLumpSumsPaid =
-          v.lumpSumCents > 0 && v.paidCents >= v.lumpSumCents
-        const openCents = allLumpSumsPaid ? 0 : totalCents - v.paidCents
+        // Total efetivamente quitado: lump-sum agendado pago +
+        // pagamentos via transfer pair (botão Pagar).
+        const totalPaidCents = v.paidCents + v.transferPaidCents
+        const openCents = Math.max(0, totalCents - totalPaidCents)
         return {
           key,
           label: `${MONTH_NAMES_PT[Number(m) - 1]} ${y}`,
           totalCents,
           itemizedCents,
           lumpSumCents: v.lumpSumCents,
-          paidCents: v.paidCents,
+          paidCents: totalPaidCents,
           openCents,
           itemized: v.itemized.sort((a, b) =>
             a.occurred_on < b.occurred_on ? 1 : -1,
