@@ -17,6 +17,29 @@ import type {
 
 type AnySupabase = SupabaseClient<any, any, any>
 
+// Snapshots dos últimos N dias pra renderizar PatrimonyTrend.
+// Ordem ascending por data — chart espera mais antigo → mais recente.
+// Conselho v3 (Planner+Finanças): infra de produto pra trends honestos.
+export async function fetchPatrimonySnapshots(
+  client: AnySupabase,
+  userId: string,
+  daysBack = 90,
+): Promise<Array<{ date: string; totalCents: number }>> {
+  const from = new Date()
+  from.setUTCDate(from.getUTCDate() - daysBack)
+  const fromIso = from.toISOString().slice(0, 10)
+  const { data } = await client
+    .from("balance_snapshots")
+    .select("snapshot_date, total_balance_cents")
+    .eq("user_id", userId)
+    .gte("snapshot_date", fromIso)
+    .order("snapshot_date", { ascending: true })
+  return ((data ?? []) as Array<{ snapshot_date: string; total_balance_cents: number | string }>).map((r) => ({
+    date: r.snapshot_date,
+    totalCents: Number(r.total_balance_cents),
+  }))
+}
+
 export type DashboardCoreData = {
   monthTx: MonthTxRow[]
   recentTx: RecentTxRow[]

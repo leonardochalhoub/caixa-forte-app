@@ -15,10 +15,12 @@ import { QuickCapture } from "./_components/QuickCapture"
 import { RecentTransactions } from "./_components/RecentTransactions"
 import { TrendStrip } from "./_components/TrendStrip"
 import { UpcomingList } from "./_components/UpcomingList"
+import { PatrimonyTrend } from "./_components/PatrimonyTrend"
 import {
   fetchAllExpenseTx,
   fetchCardCalcTxs,
   fetchDashboardCore,
+  fetchPatrimonySnapshots,
   fetchUserLocation,
 } from "@/lib/dashboard/queries"
 import {
@@ -45,12 +47,14 @@ export default async function DashboardPage() {
   const slots = lastNMonthSlots(12)
   const oldestStart = slots[0]!.start
 
-  const [core, allExpenseTx, cardCalcTxs, location] = await Promise.all([
-    fetchDashboardCore(supabase, user.id, oldestStart),
-    fetchAllExpenseTx(supabase, user.id),
-    fetchCardCalcTxs(supabase, user.id),
-    fetchUserLocation(supabase, user.id),
-  ])
+  const [core, allExpenseTx, cardCalcTxs, location, patrimonySnapshots] =
+    await Promise.all([
+      fetchDashboardCore(supabase, user.id, oldestStart),
+      fetchAllExpenseTx(supabase, user.id),
+      fetchCardCalcTxs(supabase, user.id),
+      fetchUserLocation(supabase, user.id),
+      fetchPatrimonySnapshots(supabase, user.id, 90),
+    ])
   // allExpenseTx é mantido em paridade com a versão anterior — alimenta
   // o `detectedCardDebt` legado que serve como base de referência pro
   // openDebtByCard. Não é usado diretamente no display.
@@ -183,6 +187,20 @@ export default async function DashboardPage() {
             </div>
           </div>
           <TrendStrip data={monthly} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-baseline justify-between">
+            <div>
+              <h2 className="text-sm font-medium text-strong">Evolução do patrimônio</h2>
+              <p className="text-xs text-muted">
+                Snapshot diário do saldo total · últimos 90 dias
+              </p>
+            </div>
+          </div>
+          <PatrimonyTrend data={patrimonySnapshots} />
         </CardContent>
       </Card>
 

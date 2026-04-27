@@ -2,6 +2,21 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Acessibilidade: respeita prefers-reduced-motion (WCAG 2.3.3).
+   Conselheira de Design v3 flagou. Usuários com vestíbulo sensível
+   (vertigo, transtornos vestibulares) configuram OS pra reduzir
+   movimento — ignorar isso causa náusea real. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* Light — grey page, white cards, pure black text. High contrast. */
 :root {
   --color-canvas: #dcdce0;       /* ~15% lighter than zinc-300, still clearly grey */

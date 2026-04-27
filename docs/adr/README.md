@@ -16,6 +16,7 @@ consequências, referências.
 | [0003](./0003-rpc-security-definer.md) | RPCs com SECURITY DEFINER | Aceito |
 | [0004](./0004-transfer-peer-id-bidirectional.md) | Transferências via transfer_peer_id self-FK | Aceito |
 | [0005](./0005-llm-provider-abstraction.md) | Abstração de Provider LLM | Aceito |
+| [0006](./0006-balance-snapshots.md) | Balance Snapshots Diários | Aceito |
 
 ## Como adicionar novo ADR
 
