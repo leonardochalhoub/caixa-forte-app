@@ -11,6 +11,7 @@ import { AppNav } from "./_components/AppNav"
 import { DemoTabGuard } from "./_components/DemoTabGuard"
 import { LoginHeartbeat } from "./_components/LoginHeartbeat"
 import { ProfileMenu } from "./_components/ProfileMenu"
+import { RealtimeTxRefresh } from "./_components/RealtimeTxRefresh"
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireOnboardedUser()
@@ -68,6 +69,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {children}
       </main>
       <LoginHeartbeat />
+      <RealtimeTxRefresh userId={user.id} />
       <Footer />
     </div>
   )
