@@ -1,9 +1,18 @@
 "use server"
 
+import { createHash } from "node:crypto"
 import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
+
+// Deriva uma UUID v5-like estável de uma string. Usado pra idempotency
+// de pay_invoice — mesma combinação (user, cartão, fatura) sempre gera
+// a mesma chave, então duplo-clique vira no-op no banco.
+function stableUuidFromString(input: string): string {
+  const hex = createHash("sha1").update(input).digest("hex")
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
 
 const CreateCardSchema = z.object({
   bank: z.string().trim().min(1).max(60),
@@ -76,27 +85,39 @@ const PayInvoiceSchema = z.object({
 export async function payInvoiceAction(
   input: z.infer<typeof PayInvoiceSchema>,
 ) {
-  await requireUser()
+  const user = await requireUser()
   const parsed = PayInvoiceSchema.parse(input)
   const supabase = await createServerClient()
+
+  // Idempotência: chave determinística por (user, cartão, fatura).
+  // Duplo-clique ou retry de rede gera mesma chave → RPC retorna o
+  // par existente sem reinserir (mig 0048).
+  const idempotencyKey = stableUuidFromString(
+    `${user.id}::${parsed.cardId}::${parsed.invoiceLabel}`,
+  )
 
   const { data, error } = await supabase.rpc("pay_invoice", {
     p_card_id: parsed.cardId,
     p_source_account_id: parsed.sourceAccountId,
     p_amount_cents: parsed.amountCents,
     p_invoice_label: parsed.invoiceLabel,
+    p_idempotency_key: idempotencyKey,
   })
   if (error) throw new Error(`Falha ao pagar fatura: ${error.message}`)
 
   revalidatePath("/app/cartoes")
   revalidatePath("/app")
   revalidatePath("/app/contas")
+  const result = data as {
+    deleted_scheduled_ids?: string[]
+    marked_charge_ids?: string[]
+    idempotent_replay?: boolean
+  } | null
   return {
     ok: true,
-    deletedScheduledIds: (data as { deleted_scheduled_ids?: string[] })
-      ?.deleted_scheduled_ids ?? [],
-    markedChargeIds: (data as { marked_charge_ids?: string[] })
-      ?.marked_charge_ids ?? [],
+    deletedScheduledIds: result?.deleted_scheduled_ids ?? [],
+    markedChargeIds: result?.marked_charge_ids ?? [],
+    idempotentReplay: result?.idempotent_replay ?? false,
   }
 }
 
