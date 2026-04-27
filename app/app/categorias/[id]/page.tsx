@@ -139,17 +139,33 @@ export default async function CategoryDetailPage({
     }
   }
 
-  const { data: transactions } = await supabase
+  // Pra "Cartão de Crédito" (parent), inclui também pagamentos de fatura
+  // gerados pelo pay_invoice (expense lado checking, sem category_id) —
+  // assim a tela detalhe bate com o total mostrado na grid.
+  const norm = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
+  const isCreditCardCat =
+    !category.parent_id && norm(category.name) === "cartao de credito"
+
+  const includedIdsArr = Array.from(includedIds)
+  let txQuery = supabase
     .from("transactions")
     .select(
       "id, type, amount_cents, occurred_on, merchant, note, account_id, category_id, is_transfer, created_at",
     )
     .eq("user_id", user.id)
-    .in("category_id", Array.from(includedIds))
     .gte("occurred_on", range.start)
     .lte("occurred_on", range.end)
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false })
+
+  txQuery = isCreditCardCat
+    ? txQuery.or(
+        `category_id.in.(${includedIdsArr.join(",")}),and(tx_kind.eq.invoice_payment,type.eq.expense,category_id.is.null)`,
+      )
+    : txQuery.in("category_id", includedIdsArr)
+
+  const { data: transactions } = await txQuery
 
   const accountMap = new Map((accounts ?? []).map((a) => [a.id, a.name]))
   const catMap = new Map(
