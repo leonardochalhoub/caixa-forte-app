@@ -3,7 +3,6 @@ export const revalidate = 0
 
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 import type { AccountType } from "@/lib/types"
 import { bucketizeTransactions, lastNMonthSlots } from "@/lib/analytics/periods"
 import { todayIsoDate, formatPtBrDateShort } from "@/lib/time"
@@ -50,7 +49,7 @@ export default async function DashboardPage() {
     { data: upcomingTx },
     { data: pendingCaptures },
   ] = await Promise.all([
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select(
         "type, amount_cents, occurred_on, category_id, is_transfer, account_id, paid_at, merchant",
@@ -60,7 +59,7 @@ export default async function DashboardPage() {
     // "Últimas transações" no dashboard só mostra movimentações das
     // contas normais. Tx em cartão de crédito (charges) ficam dentro
     // da fatura em /app/cartoes — não aparecem aqui pra não poluir.
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select(
         "id, type, amount_cents, occurred_on, merchant, note, needs_review, account_id, category_id, created_at, paid_at",
@@ -69,7 +68,7 @@ export default async function DashboardPage() {
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(100),
-    untyped(supabase)
+    supabase
       .from("accounts")
       .select("id, name, type, opening_balance_cents, closing_day")
       .eq("user_id", user.id)
@@ -84,7 +83,7 @@ export default async function DashboardPage() {
     // account_id. Depois separamos: contas não-cartão usam só paid_at
     // não-nulo; cartão de crédito usa tudo (charge é dívida desde o
     // swipe, independente de paid_at).
-    untyped(supabase)
+    supabase
       .from("transactions")
       .select("account_id, type, amount_cents, paid_at, is_transfer, tx_kind")
       .eq("user_id", user.id),
@@ -265,7 +264,7 @@ export default async function DashboardPage() {
   const bankKey = bankKeyOfCard
   // Busca todas as tx do user (incluindo agendadas) pra detectar
   // lump-sums. Limitado a expense is_transfer=false.
-  const { data: allTxRaw } = await untyped(supabase)
+  const { data: allTxRaw } = await supabase
     .from("transactions")
     .select("account_id, type, amount_cents, merchant, paid_at, is_transfer, tx_kind")
     .eq("user_id", user.id)
@@ -312,7 +311,7 @@ export default async function DashboardPage() {
   // occurred_on/merchant. Usa allExpenseTx + tx do próprio cartão (já
   // temos via flowRealized que tem account_id, mas falta merchant/
   // occurred_on). Refazendo com query rica.
-  const { data: cardCalcTxRaw } = await untyped(supabase)
+  const { data: cardCalcTxRaw } = await supabase
     .from("transactions")
     .select(
       "account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
@@ -517,13 +516,13 @@ export default async function DashboardPage() {
   let cityName: string | null = null
   let uf: string | null = null
   try {
-    const locRes = await untyped(supabase)
+    const locRes = await supabase
       .from("profiles")
       .select("city_name, uf")
       .eq("user_id", user.id)
       .maybeSingle()
-    cityName = (locRes.data?.city_name as string | null) ?? null
-    uf = (locRes.data?.uf as string | null) ?? null
+    cityName = locRes.data?.city_name ?? null
+    uf = locRes.data?.uf ?? null
   } catch {
     /* columns don't exist yet */
   }
