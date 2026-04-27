@@ -86,7 +86,7 @@ export default async function DashboardPage() {
     // swipe, independente de paid_at).
     untyped(supabase)
       .from("transactions")
-      .select("account_id, type, amount_cents, paid_at, is_transfer")
+      .select("account_id, type, amount_cents, paid_at, is_transfer, tx_kind")
       .eq("user_id", user.id),
     supabase
       .from("transactions")
@@ -267,7 +267,7 @@ export default async function DashboardPage() {
   // lump-sums. Limitado a expense is_transfer=false.
   const { data: allTxRaw } = await untyped(supabase)
     .from("transactions")
-    .select("account_id, type, amount_cents, merchant, paid_at, is_transfer")
+    .select("account_id, type, amount_cents, merchant, paid_at, is_transfer, tx_kind")
     .eq("user_id", user.id)
     .eq("type", "expense")
   const allExpenseTx = (allTxRaw ?? []) as Array<{
@@ -276,6 +276,7 @@ export default async function DashboardPage() {
     merchant: string | null
     paid_at: string | null
     is_transfer: boolean | null
+    tx_kind: string | null
   }>
   const detectedCardDebt = new Map<string, number>()
   for (const card of (accounts ?? []).filter(
@@ -286,6 +287,9 @@ export default async function DashboardPage() {
     let debt = 0
     for (const t of allExpenseTx) {
       if (t.is_transfer) continue
+      // Exclui invoice_payment (já é representado em transferPayments
+      // do lado do cartão; somar de novo aqui inflaria a dívida).
+      if (t.tx_kind === "invoice_payment") continue
       if (t.account_id === card.id) continue // já contado em flowByAccount
       if (t.paid_at) continue // fatura já paga no passado, water under the bridge
       const m = normalizeStr(t.merchant ?? "")
@@ -310,7 +314,9 @@ export default async function DashboardPage() {
   // occurred_on). Refazendo com query rica.
   const { data: cardCalcTxRaw } = await untyped(supabase)
     .from("transactions")
-    .select("account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer")
+    .select(
+      "account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
+    )
     .eq("user_id", user.id)
   type CardCalcTx = {
     account_id: string
@@ -320,6 +326,7 @@ export default async function DashboardPage() {
     merchant: string | null
     paid_at: string | null
     is_transfer: boolean | null
+    tx_kind: string | null
   }
   const cardCalcTxs = (cardCalcTxRaw ?? []) as CardCalcTx[]
 
@@ -339,8 +346,13 @@ export default async function DashboardPage() {
       return b
     }
     for (const t of cardCalcTxs) {
-      if (t.is_transfer && t.account_id === card.id && t.type === "income") {
-        // Transfer payment (botão Pagar) ou refund: bucketed por merchant
+      // Pagamento via botão Pagar (par criado por pay_invoice RPC):
+      // tx_kind='invoice_payment' + type=income no lado do cartão.
+      if (
+        t.tx_kind === "invoice_payment" &&
+        t.account_id === card.id &&
+        t.type === "income"
+      ) {
         const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
         ensure(k).paid += Number(t.amount_cents)
         continue
@@ -348,11 +360,14 @@ export default async function DashboardPage() {
       if (t.is_transfer) continue
       if (t.type !== "expense") continue
       if (t.account_id === card.id) {
-        // charge itemized
-        const k = chargeInvoiceMonthHome(t.occurred_on, closingDay)
-        ensure(k).total += Number(t.amount_cents)
+        // Charge itemized: tx_kind='charge' (ou null legacy = backstop)
+        if (t.tx_kind === "charge" || t.tx_kind === null) {
+          const k = chargeInvoiceMonthHome(t.occurred_on, closingDay)
+          ensure(k).total += Number(t.amount_cents)
+        }
       } else {
-        // lump-sum agendado em outra conta?
+        // lump-sum agendado em outra conta? (tx_kind=null + merchant match)
+        if (t.tx_kind === "invoice_payment") continue // já contado acima
         const m = normalizeStr(t.merchant ?? "")
         if (!m.includes("cartao") || !m.includes(cardBankKey)) continue
         const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
