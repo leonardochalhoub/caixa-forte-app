@@ -7,7 +7,7 @@ import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatBRL } from "@/lib/money"
-import { formatPtBrDateShort } from "@/lib/time"
+import { formatPtBrDateShort, formatPtBrDateTimeShort } from "@/lib/time"
 import { CardsManager } from "./_components/CardsManager"
 import { ClosingDayEditor } from "./_components/ClosingDayEditor"
 import { PayInvoiceButton } from "./_components/PayInvoiceButton"
@@ -30,6 +30,7 @@ export default async function CartoesPage() {
     type: "income" | "expense"
     amount_cents: number
     occurred_on: string
+    created_at: string
     merchant: string | null
     paid_at: string | null
     is_transfer: boolean | null
@@ -64,7 +65,7 @@ export default async function CartoesPage() {
     supabase
       .from("transactions")
       .select(
-        "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind, category_id",
+        "id, account_id, type, amount_cents, occurred_on, created_at, merchant, paid_at, is_transfer, tx_kind, category_id",
       )
       .eq("user_id", user.id)
       .order("occurred_on", { ascending: false }),
@@ -96,6 +97,7 @@ export default async function CartoesPage() {
     id: string
     amount_cents: number
     occurred_on: string
+    created_at: string
     merchant: string | null
     paid_at: string | null
     isLumpSum: boolean
@@ -178,6 +180,7 @@ export default async function CartoesPage() {
         id: t.id,
         amount_cents: Number(t.amount_cents),
         occurred_on: t.occurred_on,
+        created_at: t.created_at,
         merchant: t.merchant,
         paid_at: t.paid_at,
         isLumpSum: false,
@@ -193,6 +196,7 @@ export default async function CartoesPage() {
         id: t.id,
         amount_cents: Number(t.amount_cents),
         occurred_on: t.occurred_on,
+        created_at: t.created_at,
         merchant: t.merchant,
         paid_at: t.paid_at,
         isLumpSum: true,
@@ -213,6 +217,7 @@ export default async function CartoesPage() {
         id: t.id,
         amount_cents: Number(t.amount_cents),
         occurred_on: t.occurred_on,
+        created_at: t.created_at,
         merchant: t.merchant,
         paid_at: t.paid_at,
         isLumpSum: false,
@@ -362,6 +367,7 @@ function InvoiceRow({
       id: string
       amount_cents: number
       occurred_on: string
+      created_at: string
       merchant: string | null
       paid_at: string | null
       isLumpSum: boolean
@@ -373,6 +379,7 @@ function InvoiceRow({
       id: string
       amount_cents: number
       occurred_on: string
+      created_at: string
       merchant: string | null
       paid_at: string | null
       isLumpSum: boolean
@@ -466,7 +473,7 @@ function InvoiceRow({
                 className="flex min-w-0 flex-1 items-center gap-2 text-body hover:text-strong"
               >
                 <span className="shrink-0 tabular-nums">
-                  {formatPtBrDateShort(t.occurred_on)}
+                  {formatPtBrDateTimeShort(t.occurred_on, t.created_at)}
                 </span>
                 <span className="truncate">
                   {t.merchant ?? "(sem merchant)"}

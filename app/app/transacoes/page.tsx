@@ -11,7 +11,7 @@ export default async function TransacoesPage() {
     supabase
       .from("transactions")
       .select(
-        "id, type, amount_cents, occurred_on, merchant, note, needs_review, account_id, category_id",
+        "id, type, amount_cents, occurred_on, created_at, merchant, note, needs_review, account_id, category_id",
       )
       .eq("user_id", user.id)
       .order("occurred_on", { ascending: false })

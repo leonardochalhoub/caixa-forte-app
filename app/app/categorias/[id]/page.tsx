@@ -7,7 +7,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { formatBRL } from "@/lib/money"
-import { currentMonthRange, todayIsoDate, formatPtBrDateShort } from "@/lib/time"
+import {
+  currentMonthRange,
+  todayIsoDate,
+  formatPtBrDateShort,
+  formatPtBrDateTimeShort,
+} from "@/lib/time"
 import { lastNMonthSlots } from "@/lib/analytics/periods"
 
 export const dynamic = "force-dynamic"
@@ -259,7 +264,7 @@ export default async function CategoryDetailPage({
                 {nonTransfer.map((tx) => (
                   <tr key={tx.id} className="text-body">
                     <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-muted">
-                      {formatPtBrDateShort(tx.occurred_on)}
+                      {formatPtBrDateTimeShort(tx.occurred_on, tx.created_at)}
                     </td>
                     <td className="px-4 py-2">
                       <p className="text-strong">{tx.merchant ?? "—"}</p>

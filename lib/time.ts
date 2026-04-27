@@ -20,6 +20,23 @@ export function formatPtBrDateShort(isoDate: string): string {
   return format(parse(isoDate, "yyyy-MM-dd", new Date()), "dd/MM")
 }
 
+// "DD/MM HH:MM" — combina occurred_on (date) com time-of-day de um
+// timestamptz (geralmente created_at). Usado nas tabelas de transação
+// pra dar contexto temporal além da data.
+export function formatPtBrDateTimeShort(
+  isoDate: string,
+  timestampTz?: string | null,
+): string {
+  const datePart = formatPtBrDateShort(isoDate)
+  if (!timestampTz) return datePart
+  try {
+    const time = formatInTimeZone(new Date(timestampTz), APP_TIMEZONE, "HH:mm")
+    return `${datePart} ${time}`
+  } catch {
+    return datePart
+  }
+}
+
 export function currentMonthRange(now?: Date): { start: string; end: string } {
   const d = now ?? nowInSaoPaulo()
   const start = startOfMonth(d)

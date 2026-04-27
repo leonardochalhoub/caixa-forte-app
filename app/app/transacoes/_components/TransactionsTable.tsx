@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select"
 import { toast } from "@/components/ui/toast"
 import { formatBRL } from "@/lib/money"
-import { formatPtBrDateShort } from "@/lib/time"
+import { formatPtBrDateTimeShort } from "@/lib/time"
 import type { AccountType } from "@/lib/types"
 import { deleteTransactionAction } from "../../actions"
 
@@ -27,6 +27,7 @@ interface Transaction {
   type: "income" | "expense"
   amount_cents: number
   occurred_on: string
+  created_at?: string | null
   merchant: string | null
   note: string | null
   needs_review: boolean
@@ -193,7 +194,7 @@ export function TransactionsTable({
                     {tx.needs_review && <Badge variant="review">Revisar</Badge>}
                   </div>
                   <p className="truncate text-xs text-muted">
-                    {formatPtBrDateShort(tx.occurred_on)} · {labelCategory(tx.category_id)}
+                    {formatPtBrDateTimeShort(tx.occurred_on, tx.created_at)} · {labelCategory(tx.category_id)}
                     {account ? ` · ${account.name}` : ""}
                   </p>
                 </div>
