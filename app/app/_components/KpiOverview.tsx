@@ -249,14 +249,19 @@ function HeroBalance({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-canvas">
               <Wallet className="h-5 w-5 text-strong" />
             </div>
-            <div className="flex-1 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
                 Saldo total agora
               </p>
+              {/* Tamanho responsivo em 3 steps + truncate previne overflow
+                  em smartphones estreitos quando o saldo passa de R$ 100k
+                  (13+ chars no formato pt-BR). min-w-0 no parent permite
+                  que o flex-item encolha e seja clampado. */}
               <p
-                className={`font-mono text-4xl font-semibold tabular-nums tracking-tight md:text-5xl ${
+                className={`truncate font-mono text-3xl font-semibold tabular-nums tracking-tight sm:text-4xl md:text-5xl ${
                   totalNeg ? "text-expense" : "text-ink"
                 }`}
+                title={formatBRL(totalBalanceCents)}
               >
                 {formatBRL(totalBalanceCents)}
               </p>
