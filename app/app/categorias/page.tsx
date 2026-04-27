@@ -130,20 +130,33 @@ export default async function CategoriasPage({
       .order("sort_order"),
     supabase
       .from("transactions")
-      .select("category_id, amount_cents, type, is_transfer, occurred_on")
+      .select("category_id, amount_cents, type, is_transfer, tx_kind, occurred_on")
       .eq("user_id", user.id)
       .gte("occurred_on", range.start)
       .lte("occurred_on", range.end),
   ])
 
+  // Pagamento de fatura entra em "Cartão de Crédito" pra refletir TODOS os
+  // cartões com fatura no período (mesmo quando o lançamento gerado pelo
+  // pay_invoice não tem category_id explícito).
+  const normalize = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
+  const creditCategoryId = (categories ?? []).find(
+    (c) => !c.parent_id && normalize(c.name as string) === "cartao de credito",
+  )?.id as string | undefined
+
   const stats = new Map<string, { count: number; totalCents: number }>()
   for (const t of transactions ?? []) {
     if (t.is_transfer) continue
-    if (!t.category_id) continue
-    const prev = stats.get(t.category_id) ?? { count: 0, totalCents: 0 }
+    let catId = (t.category_id as string | null) ?? null
+    if (!catId && t.tx_kind === "invoice_payment" && t.type === "expense" && creditCategoryId) {
+      catId = creditCategoryId
+    }
+    if (!catId) continue
+    const prev = stats.get(catId) ?? { count: 0, totalCents: 0 }
     prev.count += 1
     prev.totalCents += Number(t.amount_cents)
-    stats.set(t.category_id, prev)
+    stats.set(catId, prev)
   }
 
   return (
