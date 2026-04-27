@@ -343,6 +343,11 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
       groq_parse_json: p,
       groq_confidence: p.confidence,
       paid_at: paidAt,
+      // Cartão de crédito: charge é o kind canônico. Outras contas
+      // ficam com tx_kind=null (regular). invoice_payment / refund /
+      // fee / transfer são marcados explicitamente nos seus paths
+      // específicos (pay_invoice RPC etc).
+      tx_kind: isCreditAccount && p.type === "expense" ? "charge" : null,
     })
     .select("id")
     .single()

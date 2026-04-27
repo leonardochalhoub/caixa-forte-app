@@ -633,6 +633,7 @@ export type Database = {
           paid_at: string | null
           raw_input: string | null
           source: string
+          tx_kind: string | null
           type: string
           updated_at: string | null
           user_id: string
@@ -653,6 +654,7 @@ export type Database = {
           paid_at?: string | null
           raw_input?: string | null
           source: string
+          tx_kind?: string | null
           type: string
           updated_at?: string | null
           user_id: string
@@ -673,6 +675,7 @@ export type Database = {
           paid_at?: string | null
           raw_input?: string | null
           source?: string
+          tx_kind?: string | null
           type?: string
           updated_at?: string | null
           user_id?: string
@@ -699,7 +702,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      pay_invoice: {
+        Args: {
+          p_amount_cents: number
+          p_card_id: string
+          p_invoice_label: string
+          p_source_account_id: string
+        }
+        Returns: Json
+      }
       seed_default_categories: { Args: { p_user: string }; Returns: undefined }
+      unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
       [_ in never]: never
