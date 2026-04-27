@@ -4,21 +4,22 @@ import { headers } from "next/headers"
 import { z } from "zod"
 import { requireUser } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 export async function recordLoginAction(): Promise<void> {
   const user = await requireUser()
   const h = await headers()
   const fwd = h.get("x-forwarded-for")
-  const ip =
+  const ipRaw =
     (fwd ? fwd.split(",")[0]?.trim() : null) ||
     h.get("x-real-ip") ||
     h.get("cf-connecting-ip") ||
     null
+  // Hash o IP antes de gravar (LGPD) — mesmo padrão do heartbeat.
+  const ip = ipRaw ? Buffer.from(ipRaw).toString("base64").slice(0, 24) : null
   const ua = h.get("user-agent")?.slice(0, 512) ?? null
 
   const admin = createAdminClient()
-  await untyped(admin)
+  await admin
     .from("login_events")
     .insert({ user_id: user.id, ip, user_agent: ua })
 }
@@ -34,7 +35,7 @@ async function coordsFromCitiesTable(
 ): Promise<{ lat: number; lng: number } | null> {
   try {
     const admin = createAdminClient()
-    const { data } = await untyped(admin)
+    const { data } = await admin
       .from("cities_br")
       .select("lat, lng")
       .eq("ibge_id", ibgeId)
@@ -94,7 +95,7 @@ export async function saveProfileLocationAction(
   const coords =
     (await coordsFromCitiesTable(parsed.ibgeId)) ??
     (await geocodeCityBR(parsed.cityName, parsed.uf))
-  const { error } = await untyped(admin)
+  const { error } = await admin
     .from("profiles")
     .update({
       city_ibge: parsed.ibgeId,
@@ -105,7 +106,7 @@ export async function saveProfileLocationAction(
     })
     .eq("user_id", user.id)
   if (error) {
-    const msg = (error as { message?: string }).message ?? ""
+    const msg = error.message ?? ""
     if (
       msg.includes("city_ibge") ||
       msg.includes("city_name") ||
@@ -129,11 +130,11 @@ export async function saveProfileGenderAction(
   const user = await requireUser()
   const parsed = SaveGenderSchema.parse(input)
   const admin = createAdminClient()
-  const { error } = await untyped(admin)
+  const { error } = await admin
     .from("profiles")
     .update({ gender: parsed.gender })
     .eq("user_id", user.id)
-  if (error) throw new Error((error as { message?: string }).message ?? "gender save failed")
+  if (error) throw new Error(error.message ?? "gender save failed")
 }
 
 const SaveBirthdaySchema = z.object({
@@ -146,9 +147,9 @@ export async function saveProfileBirthdayAction(
   const user = await requireUser()
   const parsed = SaveBirthdaySchema.parse(input)
   const admin = createAdminClient()
-  const { error } = await untyped(admin)
+  const { error } = await admin
     .from("profiles")
     .update({ birthday: parsed.birthday })
     .eq("user_id", user.id)
-  if (error) throw new Error((error as { message?: string }).message ?? "birthday save failed")
+  if (error) throw new Error(error.message ?? "birthday save failed")
 }
