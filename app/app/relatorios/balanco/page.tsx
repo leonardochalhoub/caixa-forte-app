@@ -13,7 +13,8 @@ import {
 } from "./_components/AdjustmentForm"
 import { BalancoAIInsight } from "./_components/BalancoAIInsight"
 import { AddRegistryButton } from "./_components/RegistryForm"
-import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
+import { type FipeMetadata } from "@/lib/fipe"
+import { autoSyncFipeForPeriod } from "@/lib/reports/balanco-fipe-sync"
 
 import { MONTH_NAMES_PT } from "@/lib/time"
 import {
@@ -118,90 +119,17 @@ export default async function BalancoPage({
   }
   let adjustments = (adjustmentsRaw ?? []) as AdjRow[]
 
-  // Auto-sync FIPE: se existem ajustes FIPE em outros períodos mas não
-  // no período corrente selecionado, busca o preço atual e cria entry
-  // pra este período. Idempotente: se já tem, não duplica.
+  // Auto-sync FIPE: ao abrir um período mensal, propaga ajustes FIPE
+  // dos outros períodos pra esse, atualizando preço com cotação FIPE
+  // quando possível. Lógica em lib/reports/balanco-fipe-sync.ts.
   if (period.kind === "mensal") {
-    const { data: allFipeRaw } = await supabase
-      .from("balance_adjustments")
-      .select("id, period, line_key, label, amount_cents, metadata")
-      .eq("user_id", user.id)
-      .eq("metadata->>source", "fipe")
-    type FipeAdj = {
-      id: string
-      period: string
-      line_key: string
-      label: string
-      amount_cents: number
-      metadata: FipeMetadata
-    }
-    const allFipe = (allFipeRaw ?? []) as unknown as FipeAdj[]
-    // Pra cada (fipe_code, year_id), verifica se existe entrada no periodStr
-    const existingInPeriod = new Set(
-      adjustments
-        .map((a) => {
-          const m = a.metadata as FipeMetadata | null
-          return m?.source === "fipe" ? `${m.fipe_code}::${m.year_id}` : null
-        })
-        .filter((x): x is string => x != null),
+    const newAdjs = await autoSyncFipeForPeriod(
+      supabase,
+      user.id,
+      periodStr,
+      adjustments,
     )
-    const templatesByKey = new Map<string, FipeAdj>()
-    for (const a of allFipe) {
-      const k = `${a.metadata.fipe_code}::${a.metadata.year_id}`
-      if (existingInPeriod.has(k)) continue
-      const prev = templatesByKey.get(k)
-      if (!prev || a.period > prev.period) templatesByKey.set(k, a)
-    }
-    // Busca preços em paralelo e faz insert
-    const newInserts: Array<{
-      user_id: string
-      period: string
-      line_key: string
-      label: string
-      amount_cents: number
-      note: string
-      metadata: FipeMetadata
-    }> = []
-    await Promise.all(
-      [...templatesByKey.values()].map(async (t) => {
-        const [section] = t.line_key.split("::")
-        let priceCents = t.amount_cents
-        let note = `Valor herdado do último período (${t.period.replace("mensal:", "")}) — FIPE indisponível ou sem dados pro mês.`
-        let refMonth = t.metadata.last_reference_month
-        try {
-          const price = await fetchFipePrice(t.metadata)
-          priceCents = price.priceCents
-          note = `FIPE ${price.referenceMonth} · código ${t.metadata.fipe_code} · auto-atualizado ao abrir o período`
-          refMonth = price.referenceMonth
-        } catch {
-          // Fallback: mantém valor do último período conhecido
-        }
-        newInserts.push({
-          user_id: user.id,
-          period: periodStr,
-          line_key: `${section}::custom:${Date.now()}:fipe-${t.metadata.fipe_code}`,
-          label: t.label,
-          amount_cents: priceCents,
-          note,
-          metadata: {
-            ...t.metadata,
-            last_checked_at: new Date().toISOString(),
-            last_reference_month: refMonth,
-          },
-        })
-      }),
-    )
-    if (newInserts.length > 0) {
-      const { data: inserted } = await supabase
-        .from("balance_adjustments")
-        .insert(newInserts as never)
-        .select("id, period, line_key, label, amount_cents, note")
-      if (inserted) {
-        for (const a of inserted as AdjRow[]) {
-          adjustments = [...adjustments, a]
-        }
-      }
-    }
+    if (newAdjs.length > 0) adjustments = [...adjustments, ...newAdjs]
   }
   const adjustmentsBySection = new Map<string, Adjustment[]>()
   for (const a of adjustments) {
