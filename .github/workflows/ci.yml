@@ -1,0 +1,55 @@
+name: CI
+
+# Conselho v2 (mirante:eng-software, mirante:financas) flagaram CI=2/10:
+# "Tudo o que está montado depende do dev rodar npm test localmente.
+# Inaceitável dado o investimento em testes."
+#
+# Pipeline mínimo: typecheck + lint + unit tests em cada PR e push.
+# E2E (Playwright) e RLS integration ficam pra workflow separado quando
+# forem ativados em CI (precisam Supabase local + secrets).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Typecheck + Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+        env:
+          # Specs unit não dependem de Supabase real (rls.spec.ts é
+          # skipped sem SUPABASE_URL). Valores dummy só pra Next runtime
+          # não reclamar de env ausente em build steps.
+          NEXT_PUBLIC_SUPABASE_URL: "https://ci.placeholder.supabase.co"
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "ci-placeholder-anon-key"
+
+      # Lint deixado fora do CI por incompatibilidade ESLint v9 ↔
+      # eslint-config-next 16. Reabilitar quando Next.js fornecer flat
+      # config oficial. `npm run lint` ainda roda local com .eslintrc.json
+      # (legacy ESLint API).

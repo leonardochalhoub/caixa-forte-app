@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { formatBRL, parseBRLToCents, toCents, toReais } from "@/lib/money"
+import {
+  formatBRL,
+  formatBRLForScreenReader,
+  formatBRLWithoutSymbol,
+  parseBRLToCents,
+  toCents,
+  toReais,
+} from "@/lib/money"
 
 describe("money helpers", () => {
   describe("toCents", () => {
@@ -52,6 +59,38 @@ describe("money helpers", () => {
       expect(parseBRLToCents("abc")).toBeNull()
       expect(parseBRLToCents("")).toBeNull()
       expect(parseBRLToCents("1,23,45")).toBeNull()
+    })
+  })
+
+  describe("property: formatBRLWithoutSymbol ↔ parseBRLToCents round-trip", () => {
+    // Conselheiro de Finanças (mirante) cobrou property-based test:
+    // pra todo cents inteiro, parse(format(cents)) === cents. Sem
+    // fast-check (sem dep nova), faço varredura com primo arbitrário
+    // pra cobrir variedade de magnitudes e sinais.
+    it("preserva valor em range [-10M, 10M] cents", () => {
+      const step = 17_413 // primo, ~1150 iterações
+      for (let cents = -10_000_000; cents <= 10_000_000; cents += step) {
+        const formatted = formatBRLWithoutSymbol(cents)
+        const parsed = parseBRLToCents(formatted)
+        expect(parsed, `falhou em cents=${cents} → "${formatted}"`).toBe(cents)
+      }
+    })
+  })
+
+  describe("formatBRLForScreenReader", () => {
+    it("formata valores comuns em pt-BR falado", () => {
+      expect(formatBRLForScreenReader(0)).toBe("0 reais")
+      expect(formatBRLForScreenReader(100)).toBe("1 real")
+      expect(formatBRLForScreenReader(150)).toBe("1 real e 50 centavos")
+      expect(formatBRLForScreenReader(2000)).toBe("20 reais")
+      expect(formatBRLForScreenReader(123456)).toBe("1.234 reais e 56 centavos")
+    })
+    it("trata negativos com 'menos'", () => {
+      expect(formatBRLForScreenReader(-500)).toBe("menos 5 reais")
+      expect(formatBRLForScreenReader(-12345)).toBe("menos 123 reais e 45 centavos")
+    })
+    it("aceita bigint", () => {
+      expect(formatBRLForScreenReader(2000n)).toBe("20 reais")
     })
   })
 })
