@@ -5,23 +5,9 @@ import { Tags } from "lucide-react"
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { formatBRL } from "@/lib/money"
+import { MONTH_NAMES_PT, monthBounds } from "@/lib/time"
 import { PeriodSelector } from "../conciliacao/_components/PeriodSelector"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
-
-const MONTH_NAMES_PT = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-]
 
 type Tx = {
   id: string
@@ -41,20 +27,6 @@ type CategoryRow = {
   name: string
   parent_id: string | null
   is_income: boolean
-}
-
-function monthBounds(ym: string): { start: string; end: string; label: string } {
-  const [yStr, mStr] = ym.split("-")
-  const y = Number(yStr)
-  const m = Number(mStr)
-  const start = `${y}-${String(m).padStart(2, "0")}-01`
-  const nextMonth =
-    m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`
-  return {
-    start,
-    end: nextMonth,
-    label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
-  }
 }
 
 interface SearchParams {

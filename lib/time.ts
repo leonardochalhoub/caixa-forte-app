@@ -112,3 +112,19 @@ export function monthIndexFromName(name: string): number {
   const norm = name.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
   return MONTHS_PT_LOWER.indexOf(norm as (typeof MONTHS_PT_LOWER)[number])
 }
+
+// "yyyy-MM" → start (1º dia), end (1º dia do mês seguinte, exclusive),
+// label pt-BR ("Abril 2026"). Usado em relatórios mensais.
+export function monthBounds(ym: string): { start: string; end: string; label: string } {
+  const [yStr, mStr] = ym.split("-")
+  const y = Number(yStr)
+  const m = Number(mStr)
+  const start = `${y}-${String(m).padStart(2, "0")}-01`
+  const nextMonth =
+    m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`
+  return {
+    start,
+    end: nextMonth,
+    label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
+  }
+}
