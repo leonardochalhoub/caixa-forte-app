@@ -12,7 +12,7 @@ import {
   Wallet,
 } from "lucide-react"
 import type { ReactNode } from "react"
-import { formatBRL } from "@/lib/money"
+import { formatBRL, formatBRLForScreenReader } from "@/lib/money"
 import type { MonthlyTotals } from "@/lib/analytics/periods"
 import { aggregatePeriod, project } from "@/lib/analytics/projection"
 import { shortBankName, splitBankAndSub } from "@/lib/bank-taxonomy"
@@ -191,25 +191,57 @@ function HeroBalance({
   const DeltaIcon = pct == null ? null : pct >= 0 ? TrendingUp : TrendingDown
   const deltaColor = pct == null ? "" : pct >= 0 ? "text-income" : "text-expense"
 
+  // Conselheira de Design: removido gradient/radial overlay (chartjunk),
+  // hierarquia agora reforça que "Saldo total agora" é O número (md:6xl);
+  // saldo do mês/entrada/saída descem pra 2xl. aria-label em cada número
+  // pra leitor de tela falar "saldo do mês: doze mil reais" em vez de
+  // "R cifrão doze".
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-border bg-gradient-to-br from-subtle via-base to-base p-8">
-      <div className="pointer-events-none absolute inset-0 opacity-40 [background:radial-gradient(circle_at_top_right,var(--color-border),transparent_60%)]" />
+    <div className="relative overflow-hidden rounded-3xl border border-border bg-base p-8">
       <div className="relative space-y-6">
+        <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-canvas">
+              <Wallet className="h-5 w-5 text-strong" />
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
+                Saldo total agora
+              </p>
+              {/* Tamanho responsivo em 3 steps + truncate previne overflow
+                  em smartphones estreitos quando o saldo passa de R$ 100k. */}
+              <p
+                className={`truncate font-mono text-4xl font-semibold tabular-nums tracking-tight sm:text-5xl md:text-6xl ${
+                  totalNeg ? "text-expense" : "text-ink"
+                }`}
+                title={formatBRL(totalBalanceCents)}
+                aria-label={`Saldo total agora: ${formatBRLForScreenReader(totalBalanceCents)}`}
+              >
+                {formatBRL(totalBalanceCents)}
+              </p>
+            </div>
+          </div>
+          {aside && <div className="min-w-0">{aside}</div>}
+        </div>
+
+        <div className="h-px bg-border" />
+
         <div className="grid gap-6 text-center md:grid-cols-3">
           <div className="flex flex-col items-center space-y-2">
             <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
               Saldo do mês · {monthLabel}
             </p>
             <p
-              className={`font-mono text-3xl font-semibold tabular-nums tracking-tight md:text-4xl ${
+              className={`font-mono text-2xl font-semibold tabular-nums tracking-tight ${
                 monthNeg ? "text-expense" : "text-strong"
               }`}
+              aria-label={`Saldo do mês de ${monthLabel}: ${formatBRLForScreenReader(monthNetCents)}`}
             >
               {formatBRL(monthNetCents)}
             </p>
             {pct != null && DeltaIcon && (
               <p className={`flex items-center gap-1.5 text-xs font-medium ${deltaColor}`}>
-                <DeltaIcon className="h-3.5 w-3.5" />
+                <DeltaIcon className="h-3.5 w-3.5" aria-hidden />
                 {pct > 0 ? "+" : ""}
                 {pct}% vs mês anterior
               </p>
@@ -223,51 +255,29 @@ function HeroBalance({
 
           <div className="flex flex-col items-center">
             <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted">
-              <ArrowUp className="h-3 w-3 text-income" />
+              <ArrowUp className="h-3 w-3 text-income" aria-hidden />
               Entrada do mês
             </p>
-            <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-strong md:text-3xl">
+            <p
+              className="mt-2 font-mono text-2xl font-semibold tabular-nums text-strong"
+              aria-label={`Entrada do mês: ${formatBRLForScreenReader(incomeCents)}`}
+            >
               {formatBRL(incomeCents)}
             </p>
           </div>
 
           <div className="flex flex-col items-center">
             <p className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-[0.22em] text-muted">
-              <ArrowDown className="h-3 w-3 text-expense" />
+              <ArrowDown className="h-3 w-3 text-expense" aria-hidden />
               Saída do mês
             </p>
-            <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-strong md:text-3xl">
+            <p
+              className="mt-2 font-mono text-2xl font-semibold tabular-nums text-strong"
+              aria-label={`Saída do mês: ${formatBRLForScreenReader(expenseCents)}`}
+            >
               {formatBRL(expenseCents)}
             </p>
           </div>
-        </div>
-
-        <div className="h-px bg-border" />
-
-        <div className="grid items-center gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          <div className="flex items-center gap-4">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border bg-canvas">
-              <Wallet className="h-5 w-5 text-strong" />
-            </div>
-            <div className="min-w-0 flex-1 space-y-1">
-              <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
-                Saldo total agora
-              </p>
-              {/* Tamanho responsivo em 3 steps + truncate previne overflow
-                  em smartphones estreitos quando o saldo passa de R$ 100k
-                  (13+ chars no formato pt-BR). min-w-0 no parent permite
-                  que o flex-item encolha e seja clampado. */}
-              <p
-                className={`truncate font-mono text-3xl font-semibold tabular-nums tracking-tight sm:text-4xl md:text-5xl ${
-                  totalNeg ? "text-expense" : "text-ink"
-                }`}
-                title={formatBRL(totalBalanceCents)}
-              >
-                {formatBRL(totalBalanceCents)}
-              </p>
-            </div>
-          </div>
-          {aside && <div className="min-w-0">{aside}</div>}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

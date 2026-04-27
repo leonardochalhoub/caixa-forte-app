@@ -27,6 +27,22 @@ export function formatBRLWithoutSymbol(cents: number | bigint): string {
   return BRL_NO_SYMBOL.format(toReais(cents))
 }
 
+// Versão "lida em voz alta" pra leitores de tela. Sem símbolo R$ truncado
+// pra "R cifrão", sem vírgula como separador silencioso. Conselheira de
+// Design flagou WCAG: aria-label tem que falar valor de forma natural.
+export function formatBRLForScreenReader(cents: number | bigint): string {
+  const reais = toReais(cents)
+  const negative = reais < 0
+  const absVal = Math.abs(reais)
+  const intPart = Math.floor(absVal)
+  const centsPart = Math.round((absVal - intPart) * 100)
+  const intStr = intPart.toLocaleString("pt-BR")
+  if (centsPart === 0) {
+    return `${negative ? "menos " : ""}${intStr} ${intPart === 1 ? "real" : "reais"}`
+  }
+  return `${negative ? "menos " : ""}${intStr} ${intPart === 1 ? "real" : "reais"} e ${centsPart} centavos`
+}
+
 export function parseBRLToCents(input: string): number | null {
   const stripped = input.trim().replace(/^r\$/i, "").trim()
   if (!stripped) return null

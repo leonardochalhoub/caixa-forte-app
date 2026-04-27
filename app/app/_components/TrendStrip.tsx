@@ -1,9 +1,22 @@
 "use client"
 
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import {
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import type { MonthlyTotals } from "@/lib/analytics/periods"
 import { formatBRL, toReais } from "@/lib/money"
 
+// Conselheira de Design pediu:
+//   - <Legend> visível pra leitor saber qual linha é qual sem hover
+//   - domain={[0, 'auto']} explícito (Tufte: integridade do eixo zero)
+//   - dot terminal pra quem tem daltonismo distinguir séries pelo glifo
+//   - aria-label no container pra leitor de tela
 export function TrendStrip({ data }: { data: MonthlyTotals[] }) {
   const chartData = data.map((d) => ({
     label: d.label,
@@ -13,7 +26,11 @@ export function TrendStrip({ data }: { data: MonthlyTotals[] }) {
   }))
 
   return (
-    <div className="h-48 w-full">
+    <div
+      className="h-56 w-full"
+      role="img"
+      aria-label="Tendência de entradas e saídas mensais nos últimos meses"
+    >
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
           <XAxis
@@ -29,24 +46,37 @@ export function TrendStrip({ data }: { data: MonthlyTotals[] }) {
             tickLine={false}
             axisLine={false}
             width={48}
+            domain={[0, "auto"]}
             tickFormatter={(v: number) =>
               v >= 1000 ? `${Math.round(v / 100) / 10}k` : v.toFixed(0)
             }
           />
           <Tooltip content={<MonthTooltip />} cursor={{ stroke: "var(--color-border)" }} />
+          <Legend
+            verticalAlign="top"
+            height={24}
+            iconType="circle"
+            iconSize={8}
+            wrapperStyle={{ fontSize: 11, color: "var(--color-muted)" }}
+          />
           <Line
             type="monotone"
+            name="Entradas"
             dataKey="entradas"
             stroke="var(--color-income)"
             strokeWidth={2}
             dot={false}
+            activeDot={{ r: 4 }}
           />
           <Line
             type="monotone"
+            name="Saídas"
             dataKey="saidas"
             stroke="var(--color-expense)"
             strokeWidth={2}
+            strokeDasharray="4 2"
             dot={false}
+            activeDot={{ r: 4 }}
           />
         </LineChart>
       </ResponsiveContainer>

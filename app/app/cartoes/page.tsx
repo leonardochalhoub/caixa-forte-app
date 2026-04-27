@@ -400,14 +400,17 @@ function InvoiceRow({
   //   o transfer payment menciona o mês "vazio" no merchant)
   const allPaid = invoice.openCents === 0 && invoice.paidCents > 0
   const partial = invoice.paidCents > 0 && invoice.openCents > 0
+  // Glifo redundante a cor (Conselheira de Design): daltonismo deuteranopia
+  // (~6% homens BR) lê verde/vermelho como tons iguais. ✓ / ● / ○ resolve.
   const status = allPaid
-    ? { label: "PAGA", className: "text-income" }
+    ? { label: "PAGA", glyph: "✓", className: "text-income" }
     : partial
       ? {
           label: `${formatBRL(invoice.openCents)} em aberto`,
+          glyph: "●",
           className: "text-amber-600 dark:text-amber-400",
         }
-      : { label: "EM ABERTO", className: "text-expense" }
+      : { label: "EM ABERTO", glyph: "○", className: "text-expense" }
 
   return (
     <li className="space-y-2 rounded-xl border border-border p-3">
@@ -447,8 +450,9 @@ function InvoiceRow({
         </div>
         <div className="flex items-center gap-3">
           <p
-            className={`font-mono text-base font-semibold tabular-nums ${status.className}`}
+            className={`flex items-center gap-1.5 font-mono text-base font-semibold tabular-nums ${status.className}`}
           >
+            <span aria-hidden>{status.glyph}</span>
             {status.label}
           </p>
           {invoice.openCents > 0 && (
