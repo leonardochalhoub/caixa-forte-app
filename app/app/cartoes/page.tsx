@@ -156,6 +156,12 @@ export default async function CartoesPage() {
       if (t.is_transfer) return false
       if (t.type !== "expense") return false
       const m = normalize(t.merchant ?? "")
+      // "Pagamento fatura *" é o expense do par transfer criado pelo
+      // botão Pagar; não conta como lump-sum (já é representado via
+      // transferPayments do lado do cartão). Sem essa exclusão a tx
+      // seria duplo-contada (uma vez como lump-sum, uma vez como
+      // transferPayment) inflando paidCents.
+      if (m.startsWith("pagamento fatura")) return false
       if (!m.includes("cartao")) return false
       return !!bankKey && m.includes(bankKey)
     })

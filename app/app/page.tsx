@@ -28,10 +28,17 @@ export default async function DashboardPage() {
   const oldestStart = slots[0]!.start
   const today = todayIsoDate()
 
+  type AccountRow = {
+    id: string
+    name: string
+    type: string
+    opening_balance_cents: number | null
+    closing_day?: number | null
+  }
   const [
     { data: monthTx },
     { data: recentTx },
-    { data: accounts },
+    { data: accountsRaw },
     { data: categories },
     { data: flowRealized },
     { data: upcomingTx },
@@ -56,9 +63,9 @@ export default async function DashboardPage() {
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(100),
-    supabase
+    untyped(supabase)
       .from("accounts")
-      .select("id, name, type, opening_balance_cents")
+      .select("id, name, type, opening_balance_cents, closing_day")
       .eq("user_id", user.id)
       .is("archived_at", null)
       .order("sort_order"),
@@ -93,6 +100,8 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: true })
       .limit(20),
   ])
+
+  const accounts = (accountsRaw ?? []) as AccountRow[]
 
   const formalIncomeIds = new Set(
     (categories ?? [])
@@ -285,21 +294,120 @@ export default async function DashboardPage() {
     if (debt > 0) detectedCardDebt.set(card.id, debt)
   }
 
-  const accountsWithBalance = (accounts ?? []).map((a) => {
-    const base = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
-    const detected = detectedCardDebt.get(a.id) ?? 0
-    const isCredit = (a.type as AccountType) === "credit"
-    // Cartão: balanceCents = dívida TOTAL da fatura (charges itemizados
-    // + lump-sum detectado). Entra no saldo total do hero — o user
-    // quer ver o dinheiro já comprometido com o cartão descontado.
-    let balance = base
-    if (isCredit) {
-      const itemizedDebt = Math.abs(
-        base - Number(a.opening_balance_cents ?? 0),
-      )
-      balance =
-        Number(a.opening_balance_cents ?? 0) - (itemizedDebt + detected)
+  // Pra cartões, calcula openCents real por fatura (mesma lógica do
+  // /app/cartoes): respeita closing_day pra bucketar charges, parseia
+  // mês/ano do merchant pra lump-sums e transfer payments. Resultado:
+  // dívida exibida = soma das faturas em aberto. Funciona certo em
+  // casos de over-payment (refunds, pagamento antecipado).
+  const MONTHS_PT_LOWER_HOME = [
+    "janeiro","fevereiro","marco","abril","maio","junho",
+    "julho","agosto","setembro","outubro","novembro","dezembro",
+  ]
+  const chargeInvoiceMonthHome = (
+    occurredOn: string,
+    closingDay: number | null,
+  ): string => {
+    if (!closingDay) return occurredOn.slice(0, 7)
+    const day = Number(occurredOn.slice(8, 10))
+    if (day <= closingDay) return occurredOn.slice(0, 7)
+    const [y, m] = occurredOn.slice(0, 7).split("-").map(Number)
+    const total = y! * 12 + (m! - 1) + 1
+    const ny = Math.floor(total / 12)
+    const nm = (total % 12) + 1
+    return `${ny}-${String(nm).padStart(2, "0")}`
+  }
+  const merchantInvoiceMonthHome = (
+    merchant: string | null,
+    occurredOn: string,
+  ): string => {
+    const m = (merchant ?? "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+    const yearMatch = m.match(/(20\d{2})/)
+    if (!yearMatch) return occurredOn.slice(0, 7)
+    for (let i = 0; i < 12; i++) {
+      if (m.includes(MONTHS_PT_LOWER_HOME[i]!)) {
+        return `${yearMatch[1]}-${String(i + 1).padStart(2, "0")}`
+      }
     }
+    return occurredOn.slice(0, 7)
+  }
+  // allTxs precisa de closing_day por cartão; flowRealized não tem
+  // occurred_on/merchant. Usa allExpenseTx + tx do próprio cartão (já
+  // temos via flowRealized que tem account_id, mas falta merchant/
+  // occurred_on). Refazendo com query rica.
+  const { data: cardCalcTxRaw } = await untyped(supabase)
+    .from("transactions")
+    .select("account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer")
+    .eq("user_id", user.id)
+  type CardCalcTx = {
+    account_id: string
+    type: string
+    amount_cents: number | string
+    occurred_on: string
+    merchant: string | null
+    paid_at: string | null
+    is_transfer: boolean | null
+  }
+  const cardCalcTxs = (cardCalcTxRaw ?? []) as CardCalcTx[]
+
+  const openDebtByCard = new Map<string, number>()
+  for (const card of (accounts ?? []).filter(
+    (a) => (a.type as AccountType) === "credit",
+  )) {
+    const closingDay = (card as { closing_day?: number | null }).closing_day ?? 20
+    const cardBankKey = bankKey(card.name)
+    type Bucket = { total: number; paid: number }
+    const byMonth = new Map<string, Bucket>()
+    const ensure = (k: string): Bucket => {
+      const b = byMonth.get(k) ?? { total: 0, paid: 0 }
+      byMonth.set(k, b)
+      return b
+    }
+    for (const t of cardCalcTxs) {
+      if (t.is_transfer && t.account_id === card.id && t.type === "income") {
+        // Transfer payment (botão Pagar) ou refund: bucketed por merchant
+        const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
+        ensure(k).paid += Number(t.amount_cents)
+        continue
+      }
+      if (t.is_transfer) continue
+      if (t.type !== "expense") continue
+      if (t.account_id === card.id) {
+        // charge itemized
+        const k = chargeInvoiceMonthHome(t.occurred_on, closingDay)
+        ensure(k).total += Number(t.amount_cents)
+      } else {
+        // lump-sum agendado em outra conta?
+        const m = normalizeStr(t.merchant ?? "")
+        if (!m.includes("cartao") || !m.includes(cardBankKey)) continue
+        const k = merchantInvoiceMonthHome(t.merchant, t.occurred_on)
+        ensure(k).total += Number(t.amount_cents)
+        if (t.paid_at) ensure(k).paid += Number(t.amount_cents)
+      }
+    }
+    let openSum = 0
+    for (const b of byMonth.values()) {
+      openSum += Math.max(0, b.total - b.paid)
+    }
+    openDebtByCard.set(card.id, openSum)
+  }
+
+  const accountsWithBalance = (accounts ?? []).map((a) => {
+    const isCredit = (a.type as AccountType) === "credit"
+    if (isCredit) {
+      // Display: dívida em aberto (soma das faturas não pagas).
+      // Negativo = quanto deve. 0 = tudo em dia.
+      const open = openDebtByCard.get(a.id) ?? 0
+      return {
+        id: a.id,
+        name: a.name,
+        type: a.type as AccountType,
+        balanceCents: -open,
+      }
+    }
+    const balance = Number(a.opening_balance_cents ?? 0) + (flowByAccount.get(a.id) ?? 0)
     return {
       id: a.id,
       name: a.name,
