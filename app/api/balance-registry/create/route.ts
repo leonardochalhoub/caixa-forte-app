@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { getUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -54,7 +53,7 @@ export async function POST(req: Request) {
 
     const supabase = await createServerClient()
 
-    const { data: reg, error: regErr } = await untyped(supabase)
+    const { data: reg, error: regErr } = await supabase
       .from("balance_registries")
       .insert({
         user_id: user.id,
@@ -101,7 +100,7 @@ export async function POST(req: Request) {
         metadata: { registry_id: registryId, role: "credit", kind: parsed.kind },
       },
     ]
-    const { error: adjErr } = await untyped(supabase)
+    const { error: adjErr } = await supabase
       .from("balance_adjustments")
       .insert(pair)
     if (adjErr) {

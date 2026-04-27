@@ -5,7 +5,6 @@ import { redirect } from "next/navigation"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 export interface LifecycleEvent {
   id: number
@@ -20,13 +19,12 @@ export interface LifecycleEvent {
 export async function deleteAccountAction(): Promise<void> {
   const user = await requireUser()
   const admin = createAdminClient()
-  const db = untyped(admin)
 
-  await db
+  await admin
     .from("profiles")
     .update({ deleted_at: new Date().toISOString() })
     .eq("user_id", user.id)
-  await db.from("account_lifecycle_events").insert({
+  await admin.from("account_lifecycle_events").insert({
     user_id: user.id,
     event_type: "deleted",
     note: "Solicitado pelo usuário em /app/profile.",
@@ -56,9 +54,8 @@ export async function reactivateIfDeleted(
   userId: string,
 ): Promise<{ reactivated: boolean }> {
   const admin = createAdminClient()
-  const db = untyped(admin)
 
-  const { data: profile } = await db
+  const { data: profile } = await admin
     .from("profiles")
     .select("deleted_at")
     .eq("user_id", userId)
@@ -66,11 +63,11 @@ export async function reactivateIfDeleted(
 
   if (!profile?.deleted_at) return { reactivated: false }
 
-  await db
+  await admin
     .from("profiles")
     .update({ deleted_at: null })
     .eq("user_id", userId)
-  await db.from("account_lifecycle_events").insert({
+  await admin.from("account_lifecycle_events").insert({
     user_id: userId,
     event_type: "reactivated",
     note: "Usuário fez login novamente.",
@@ -81,8 +78,7 @@ export async function reactivateIfDeleted(
 export async function loadLifecycleEvents(): Promise<LifecycleEvent[]> {
   const user = await requireUser()
   const admin = createAdminClient()
-  const db = untyped(admin)
-  const { data } = await db
+  const { data } = await admin
     .from("account_lifecycle_events")
     .select("id, event_type, happened_at, note")
     .eq("user_id", user.id)
