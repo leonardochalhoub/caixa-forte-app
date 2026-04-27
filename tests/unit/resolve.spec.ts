@@ -63,10 +63,23 @@ describe("resolveAccountId", () => {
     expect(resolveAccountId("caixa", ACCOUNTS)).toBeTruthy()
   })
 
-  it.skip("TODO: 'Caixa Federal' deveria casar 'Caixa Econômica Federal'", () => {
-    // Limitação atual: includes() exige substring contígua.
-    // Pra resolver: implementar token-level intersection.
-    expect(resolveAccountId("Caixa Federal", ACCOUNTS)).toBeTruthy()
+  it("'Caixa Federal' casa 'Caixa Econômica Federal' via token intersection", () => {
+    // Token-level matching destrava o caso onde a substring contígua
+    // não bate ("caixa federal" não está em "caixa economica federal"
+    // por causa do "economica" no meio). Tokens "caixa" + "federal"
+    // são comuns aos dois → match.
+    const id = resolveAccountId("Caixa Federal", ACCOUNTS)
+    expect(id).toBeTruthy()
+    // Desempate: "Caixa Econômica Federal" tem mais tokens em comum
+    // (caixa + federal) que "Caixa Econômica Federal Cartão" (mesmos
+    // 2 + cartão é stop-word). Quando empata, primeiro encontrado.
+    expect(["00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"]).toContain(id)
+  })
+
+  it("'mercado pago' continua casando 'Mercado Pago' (regression token-match)", () => {
+    expect(resolveAccountId("mercado pago", ACCOUNTS)).toBe(
+      "00000000-0000-0000-0000-000000000005",
+    )
   })
 })
 
