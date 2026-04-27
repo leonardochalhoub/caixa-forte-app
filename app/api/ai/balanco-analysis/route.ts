@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { getUser } from "@/lib/auth"
-import { GROQ_MODELS } from "@/lib/groq/client"
+import { LLM_MODELS, LLM_ENDPOINT, getLLMApiKey } from "@/lib/llm/provider"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 45
@@ -51,10 +51,10 @@ export async function POST(req: Request) {
       )
     }
 
-    const apiKey = process.env.GROQ_API_KEY
+    const apiKey = getLLMApiKey()
     if (!apiKey) {
       return NextResponse.json(
-        { ok: false, error: "GROQ_API_KEY ausente no servidor." },
+        { ok: false, error: "LLM API key ausente no servidor." },
         { status: 503 },
       )
     }
@@ -68,8 +68,8 @@ export async function POST(req: Request) {
         : "PERGUNTA DO USUÁRIO: (nenhuma — faça uma análise geral)",
     ].join("\n")
 
-    const callGroq = (model: string) =>
-      fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const callLLM = (model: string) =>
+      fetch(LLM_ENDPOINT, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -86,16 +86,16 @@ export async function POST(req: Request) {
         }),
       })
 
-    let res = await callGroq(GROQ_MODELS.parser)
+    let res = await callLLM(LLM_MODELS.parser)
     if (res.status === 429) {
-      res = await callGroq("llama-3.1-8b-instant")
+      res = await callLLM(LLM_MODELS.parserFallback)
     }
     if (!res.ok) {
       const txt = await res.text().catch(() => "")
       const hint =
         res.status === 429
-          ? "Rate limit Groq esgotado. Tente de novo em alguns minutos."
-          : `Groq ${res.status}: ${txt.slice(0, 120)}`
+          ? "Rate limit do LLM esgotado. Tente de novo em alguns minutos."
+          : `LLM ${res.status}: ${txt.slice(0, 120)}`
       return NextResponse.json({ ok: false, error: hint }, { status: 502 })
     }
 

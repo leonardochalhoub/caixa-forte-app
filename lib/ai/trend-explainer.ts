@@ -1,4 +1,4 @@
-import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
+import { getLLMClient, LLM_MODELS } from "@/lib/llm/provider"
 
 export interface TrendPeriodInput {
   label: string // e.g. "mês atual"
@@ -77,7 +77,7 @@ export async function explainTrends(
   const cached = getCached(key)
   if (cached) return cached
 
-  const groq = getGroqClient()
+  const groq = getLLMClient()
   if (!groq) return FALLBACK
 
   const toPayload = (p: TrendPeriodInput) => ({
@@ -112,7 +112,7 @@ Responda APENAS com JSON no formato exato:
 
   try {
     const resp = await groq.chat.completions.create({
-      model: GROQ_MODELS.chat,
+      model: LLM_MODELS.chat,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: "You output only valid JSON. Portuguese only." },

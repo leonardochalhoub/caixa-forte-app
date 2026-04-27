@@ -1,4 +1,4 @@
-import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
+import { getLLMClient, LLM_MODELS } from "@/lib/llm/provider"
 import { nowInSaoPaulo } from "@/lib/time"
 import { ParseResultSchema, type ParseResult } from "./schema"
 import {
@@ -22,8 +22,7 @@ export class ParserError extends Error {
 // 429 on all three retries. 8b-instant has its own per-minute budget so
 // it can absorb overflow when 70b is saturated. Quality dips slightly
 // but it's a last resort. Override via GROQ_PARSER_FALLBACK_MODEL.
-const FALLBACK_PARSER_MODEL =
-  process.env.GROQ_PARSER_FALLBACK_MODEL ?? "llama-3.1-8b-instant"
+const FALLBACK_PARSER_MODEL = LLM_MODELS.parserFallback
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms))
@@ -47,7 +46,7 @@ function isRateLimited(err: unknown): boolean {
 type ChatMsg = { role: "system" | "user" | "assistant"; content: string }
 
 async function completeWithRetry(
-  groq: ReturnType<typeof getGroqClient>,
+  groq: ReturnType<typeof getLLMClient>,
   primaryModel: string,
   messages: ChatMsg[],
 ): Promise<{ model: string; content: string; durationMs: number }> {
@@ -94,7 +93,7 @@ export async function parseTransaction(input: {
   accounts: Account[]
   now?: Date
 }): Promise<{ parsed: ParseResult; durationMs: number; model: string }> {
-  const groq = getGroqClient()
+  const groq = getLLMClient()
   if (!groq) throw new ParserError("GROQ_API_KEY não configurada")
 
   const trimmed = input.rawInput.trim()
@@ -120,7 +119,7 @@ export async function parseTransaction(input: {
 
   const { model, content, durationMs } = await completeWithRetry(
     groq,
-    GROQ_MODELS.parser,
+    LLM_MODELS.parser,
     messages,
   )
 
@@ -166,10 +165,10 @@ export async function transcribeAudio(audio: Blob): Promise<{
   durationMs: number
   model: string
 }> {
-  const groq = getGroqClient()
+  const groq = getLLMClient()
   if (!groq) throw new ParserError("GROQ_API_KEY não configurada")
 
-  const model = GROQ_MODELS.whisper
+  const model = LLM_MODELS.whisper
   const file = new File([audio], "audio.webm", { type: audio.type || "audio/webm" })
 
   // Whisper hits rate limits less often but when it does, one quick retry

@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache"
 import { getUser, requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
-import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
 
 const CreateSchema = z.object({
   period: z.string().min(1),

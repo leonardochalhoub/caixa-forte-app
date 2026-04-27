@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
+import { getLLMClient, LLM_MODELS } from "@/lib/llm/provider"
 import { DEFAULT_CATEGORIES_BR } from "./seed"
 
 export const CategoryNode = z.object({
@@ -44,7 +44,7 @@ FORMATO DE SAÍDA (JSON estrito):
 export async function generateCategoriesFromDescription(
   description: string,
 ): Promise<{ categories: GeneratedCategories["categories"]; source: "groq" | "fallback" }> {
-  const groq = getGroqClient()
+  const groq = getLLMClient()
   if (!groq) return { categories: defaultsAsNodes(), source: "fallback" }
 
   const trimmed = description.trim()
@@ -52,7 +52,7 @@ export async function generateCategoriesFromDescription(
 
   try {
     const resp = await groq.chat.completions.create({
-      model: GROQ_MODELS.chat,
+      model: LLM_MODELS.chat,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
