@@ -356,7 +356,9 @@ export default async function DashboardPage() {
   for (const card of (accounts ?? []).filter(
     (a) => (a.type as AccountType) === "credit",
   )) {
-    const closingDay = (card as { closing_day?: number | null }).closing_day ?? 20
+    // Sempre usa o closing_day setado pelo usuário no DB. Se NULL,
+    // helper cai pro mês-calendário (sem assumir 20).
+    const closingDay = (card as { closing_day?: number | null }).closing_day ?? null
     const cardBankKey = bankKey(card.name)
     type Bucket = { total: number; paid: number }
     const byMonth = new Map<string, Bucket>()

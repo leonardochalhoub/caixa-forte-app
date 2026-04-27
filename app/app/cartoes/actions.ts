@@ -128,7 +128,10 @@ export async function payInvoiceAction(
     .maybeSingle()
   const cardRow = card as { name?: string; closing_day?: number | null } | null
   const cardName = cardRow?.name ?? ""
-  const closingDay = cardRow?.closing_day ?? 20
+  // Sempre usa o closing_day que o usuário configurou no cartão.
+  // Se NULL no DB (caso edge — migration 0026 backfilla todos pra 20),
+  // pula o filtro de bucket por fatura (não tem como inferir o mês).
+  const closingDay = cardRow?.closing_day ?? null
   const bankKey = bankKeyFromCardName(cardName)
   const invoiceMonth = parseInvoiceMonth(parsed.invoiceLabel)
 
@@ -182,8 +185,10 @@ export async function payInvoiceAction(
         .is("paid_at", null)
       const matching = ((charges as Array<{ id: string; occurred_on: string }>) ?? [])
         .filter((t) => {
-          const day = Number(t.occurred_on.slice(8, 10))
           const occYM = t.occurred_on.slice(0, 7)
+          // Sem closing_day → bucket por mês-calendário do occurred_on.
+          if (closingDay == null) return occYM === invoiceYM
+          const day = Number(t.occurred_on.slice(8, 10))
           if (day <= closingDay) return occYM === invoiceYM
           const [y, m] = occYM.split("-").map(Number)
           const total = y! * 12 + (m! - 1) + 1
