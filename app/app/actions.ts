@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { transcribeAudio } from "@/lib/parser/parse-transaction"
 import { resolveCategoryId } from "@/lib/parser/resolve"
+import { captureText, captureAudio } from "@/lib/capture/pipeline"
 
 const CreateTransactionSchema = z.object({
   type: z.enum(["income", "expense"]),
@@ -406,7 +407,6 @@ export async function captureFromTextAction(
   const user = await requireUser()
   const parsed = TextCaptureInput.parse(input)
   const supabase = await createServerClient()
-  const { captureText } = await import("@/lib/capture/pipeline")
   return captureText({
     client: supabase,
     userId: user.id,
@@ -458,7 +458,6 @@ export async function captureFromAudioAction(formData: FormData): Promise<Captur
   if (blob.size > 25 * 1024 * 1024) throw new Error("Áudio muito grande (máx 25MB).")
 
   const supabase = await createServerClient()
-  const { captureAudio } = await import("@/lib/capture/pipeline")
   return captureAudio({
     client: supabase,
     userId: user.id,

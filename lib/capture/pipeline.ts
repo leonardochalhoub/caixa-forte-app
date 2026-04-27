@@ -109,7 +109,27 @@ type AccountFlat = { id: string; name: string; type: string }
 // nova. Abaixo disso, parqueia em capture_messages com error pra user
 // revisar. Evita poluição de taxonomia com hallucinations do LLM
 // (ex: "Restaurante" vs "Restaurantes" criando duplicata).
-const CATEGORY_AUTO_CREATE_MIN_CONFIDENCE = 0.85
+//
+// Conselho v3 (genai-architect): threshold fixo em 0.85 era alto pra
+// cold-start. User com <5 categorias nunca tem o LLM atingindo 0.85
+// pra categoria nova (calibração do prompt diz "1 campo inferido = 0.80-0.94"),
+// então toda primeira captura caía em "category_uncertain". Solução:
+// threshold dinâmico — relaxa pra 0.70 quando user é cold (poucas
+// categorias), aperta pra 0.85 quando user já tem taxonomia formada.
+export function thresholdForCategoryAutoCreate(categoriesCount: number): number {
+  return categoriesCount < 5 ? 0.7 : 0.85
+}
+
+// Sanitiza nome vindo do LLM antes de INSERT em categories. Defesa
+// secundária — escapePromptValue cobre o INPUT do prompt; aqui cobre
+// o OUTPUT antes de virar dado persistido.
+export function sanitizeCategoryName(s: string): string {
+  return s
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\]}`]/g, "")
+    .slice(0, 60)
+    .trim()
+}
 
 /**
  * Core write path. Persists the parsed transaction (or a failed capture
@@ -157,11 +177,17 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
   )
 
   if (!categoryId) {
-    // Threshold: só auto-cria categoria nova quando confidence ≥ 0.85.
-    // Abaixo disso, parqueia capture com error="category_uncertain"
-    // (genai-architect flagou: senão LLM hallucinations poluem taxonomia
-    // com "Restaurante" vs "Restaurantes" duplicado).
-    if (p.confidence < CATEGORY_AUTO_CREATE_MIN_CONFIDENCE) {
+    // Threshold dinâmico: cold-start (<5 cats) usa 0.70 pra não travar
+    // primeira captura; user com taxonomia formada usa 0.85 pra
+    // proteger contra hallucinations LLM. Conselho v3 (genai-architect).
+    const minConfidence = thresholdForCategoryAutoCreate(categoriesFlat.length)
+
+    // Defesa anti prompt-injection no output: o LLM pode ecoar string
+    // maligna do raw_input em category_name — clamp confidence quando
+    // a categoria sugerida não existe (não foi listada no prompt).
+    const effectiveConfidence = Math.min(p.confidence, 0.94)
+
+    if (effectiveConfidence < minConfidence) {
       const { data: captureRow, error } = await client
         .from("capture_messages")
         .insert({
@@ -187,7 +213,7 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
       return {
         ok: false,
         captureId: captureRow.id,
-        error: `Categoria "${p.category_name}" não existe e a confiança (${Math.round(p.confidence * 100)}%) é baixa pra criar automaticamente. Crie manualmente em /app/categorias ou refraseie.`,
+        error: `Categoria "${p.category_name}" não existe e a confiança (${Math.round(effectiveConfidence * 100)}%) é baixa pra criar automaticamente (mínimo ${Math.round(minConfidence * 100)}%). Crie manualmente em /app/categorias ou refraseie.`,
         fallbackFormNeeded: true,
       }
     }
@@ -196,7 +222,7 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
       .from("categories")
       .insert({
         user_id: userId,
-        name: p.category_name,
+        name: sanitizeCategoryName(p.category_name),
         is_income: p.type === "income",
       })
       .select("id")
@@ -210,7 +236,7 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
         .insert({
           user_id: userId,
           parent_id: categoryId,
-          name: p.subcategory_name,
+          name: sanitizeCategoryName(p.subcategory_name),
           is_income: p.type === "income",
         })
         .select("id")
@@ -231,7 +257,7 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
         .insert({
           user_id: userId,
           parent_id: currentCat.id,
-          name: p.subcategory_name,
+          name: sanitizeCategoryName(p.subcategory_name),
           is_income: p.type === "income",
         })
         .select("id")
