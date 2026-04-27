@@ -795,11 +795,15 @@ export async function heartbeatAction(): Promise<void> {
 
     const h = await (await import("next/headers")).headers()
     const fwd = h.get("x-forwarded-for")
-    const ip =
+    const ipRaw =
       (fwd ? fwd.split(",")[0]?.trim() : null) ||
       h.get("x-real-ip") ||
       h.get("cf-connecting-ip") ||
       null
+    // Hash o IP antes de gravar — IP cru é PII (LGPD). Hash trunc
+    // já permite contar únicos / detectar logins de IPs diferentes
+    // sem expor o valor real. Mesmo padrão do /api/demo/enter.
+    const ip = ipRaw ? Buffer.from(ipRaw).toString("base64").slice(0, 24) : null
     const ua = h.get("user-agent")?.slice(0, 512) ?? null
 
     await db.from("login_events").insert({
