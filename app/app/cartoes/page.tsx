@@ -394,7 +394,12 @@ function InvoiceRow({
   checkingAccounts: { id: string; name: string }[]
 }) {
   const allEntries = [...invoice.lumpSumEntries, ...invoice.itemized]
-  const allPaid = invoice.openCents === 0 && invoice.totalCents > 0
+  // Fatura paga: nada em aberto E houve pagamento. Cobre 2 casos:
+  // - fatura normal totalmente quitada (total > 0, open = 0)
+  // - fatura "vazia" mas com pagamento associado (total = 0, paid > 0)
+  //   (acontece quando closing_day move charges pra outra fatura mas
+  //   o transfer payment menciona o mês "vazio" no merchant)
+  const allPaid = invoice.openCents === 0 && invoice.paidCents > 0
   const partial = invoice.paidCents > 0 && invoice.openCents > 0
   const status = allPaid
     ? { label: "PAGA", className: "text-income" }
