@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 
-// Cron diário: pra cada user com transações, calcula saldo total +
-// breakdown por conta + por tipo de conta e insere row em
-// balance_snapshots(snapshot_date=today). Idempotente via UNIQUE
-// (user_id, snapshot_date) — re-executar no mesmo dia apenas atualiza.
+// Cron diário: pra cada user com transações, popula balance_snapshots
+// com saldo total + breakdown por conta + por tipo. Idempotente via
+// UNIQUE (user_id, snapshot_date) — re-execução no mesmo dia atualiza.
 //
-// Conselho v2 (the-planner): infra de produto pra trends honestos.
-// Sem isso, gráfico de "pra onde foi" é raso porque recalcula sobre
-// estado atual (não captura efeitos de delete/edit em rows passadas).
+// Após Conselho v3, a lógica de cálculo migrou pras funções SQL
+// `compute_per_account_balance` + `compute_per_account_type` (mig 0053).
+// Esta route só orquestra: lista users → chama function → upsert.
 //
-// Vercel chama GET com header "Authorization: Bearer $CRON_SECRET".
+// Conselho v3 (the-planner): infra de produto pra trends honestos.
+// Sem snapshot, gráfico de "pra onde foi" é raso porque recalcula
+// sobre estado atual.
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
@@ -34,11 +35,10 @@ export async function GET(req: Request) {
     timeZone: "America/Sao_Paulo",
   }).format(new Date())
 
-  // Lista usuários distintos que têm conta. Filtramos só esses pra
-  // não criar snapshots de users vazios.
+  // Lista usuários distintos com pelo menos uma conta ativa.
   const { data: usersWithAccts, error: e1 } = await sb
     .from("accounts")
-    .select("user_id", { count: "exact", head: false })
+    .select("user_id")
     .is("archived_at", null)
   if (e1) {
     return NextResponse.json({ error: e1.message }, { status: 500 })
@@ -48,52 +48,23 @@ export async function GET(req: Request) {
   const results: Array<{ userId: string; ok: boolean; total?: number; error?: string }> = []
   for (const userId of userIds) {
     try {
-      // Busca contas ativas + saldo de abertura + transações até hoje.
-      const [{ data: accounts }, { data: txs }] = await Promise.all([
-        sb
-          .from("accounts")
-          .select("id, type, opening_balance_cents")
-          .eq("user_id", userId)
-          .is("archived_at", null),
-        sb
-          .from("transactions")
-          .select("account_id, amount_cents, type, paid_at, occurred_on")
-          .eq("user_id", userId)
-          .lte("occurred_on", today),
-      ])
-
-      const accountById = new Map(
-        (accounts ?? []).map((a) => [a.id, { type: a.type, opening: Number(a.opening_balance_cents) }]),
+      // Chama as functions SQL que centralizam a lógica de cálculo.
+      const { data: perAccount, error: e2 } = await sb.rpc(
+        "compute_per_account_balance",
+        { p_user_id: userId },
       )
+      if (e2) throw new Error(e2.message)
 
-      const perAccount: Record<string, number> = {}
-      for (const a of accounts ?? []) {
-        perAccount[a.id] = Number(a.opening_balance_cents)
-      }
+      const { data: perAccountType, error: e3 } = await sb.rpc(
+        "compute_per_account_type",
+        { p_user_id: userId, p_per_account: perAccount },
+      )
+      if (e3) throw new Error(e3.message)
 
-      // Soma efeitos das transações (paid_at não nulo OU não-cartão pra
-      // simplificar — saldo "agora" considera realizado).
-      for (const t of txs ?? []) {
-        const acct = accountById.get(t.account_id)
-        if (!acct) continue
-        const cents = Number(t.amount_cents)
-        const sign = t.type === "income" ? 1 : -1
-        // Para snapshot diário usamos paid_at se existe, senão occurred_on
-        // já passou — incluído via filtro lte. Inclusivo (realizado).
-        if (t.paid_at) {
-          perAccount[t.account_id] = (perAccount[t.account_id] ?? 0) + sign * cents
-        }
-      }
+      const totalCents = Object.values(
+        (perAccount as Record<string, number>) ?? {},
+      ).reduce<number>((sum, v) => sum + Number(v), 0)
 
-      const perAccountType: Record<string, number> = {}
-      let totalCents = 0
-      for (const [accountId, cents] of Object.entries(perAccount)) {
-        const type = accountById.get(accountId)?.type ?? "unknown"
-        perAccountType[type] = (perAccountType[type] ?? 0) + cents
-        totalCents += cents
-      }
-
-      // Upsert idempotente por (user_id, snapshot_date).
       const { error: upsertErr } = await sb
         .from("balance_snapshots")
         .upsert(
@@ -101,8 +72,8 @@ export async function GET(req: Request) {
             user_id: userId,
             snapshot_date: today,
             total_balance_cents: totalCents,
-            per_account: perAccount,
-            per_account_type: perAccountType,
+            per_account: perAccount ?? {},
+            per_account_type: perAccountType ?? {},
           },
           { onConflict: "user_id,snapshot_date" },
         )
