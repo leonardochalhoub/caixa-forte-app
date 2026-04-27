@@ -186,7 +186,12 @@ export default async function DashboardPage() {
             .replace(/\p{Diacritic}/gu, "")
             .toLowerCase()
           let amount = Number(t.amount_cents)
-          if (normalized.includes("cartao")) {
+          // "Pagamento fatura *" é o transfer pair criado pelo botão
+          // Pagar — já tem o valor real do pagamento, não inflar.
+          // Lump-sums agendados ("<banco> cartão <mês>") devem ser
+          // inflados pra somar charges itemized do mesmo mês.
+          const isFaturaPayment = normalized.startsWith("pagamento fatura")
+          if (!isFaturaPayment && normalized.includes("cartao")) {
             for (const [bankKey, cardId] of cardsByBankKeyKpi) {
               if (normalized.includes(bankKey)) {
                 const addon =
