@@ -6,7 +6,6 @@ import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { transcribeAudio } from "@/lib/parser/parse-transaction"
 import { resolveCategoryId } from "@/lib/parser/resolve"
-import { untyped } from "@/lib/supabase/untyped"
 
 const CreateTransactionSchema = z.object({
   type: z.enum(["income", "expense"]),
@@ -45,7 +44,7 @@ export async function createTransactionAction(input: z.infer<typeof CreateTransa
   const today = new Date().toISOString().slice(0, 10)
   const paidAt = resolvePaidAt(parsed.occurredOn, parsed.paid, today)
 
-  const { data, error } = await untyped(supabase)
+  const { data, error } = await supabase
     .from("transactions")
     .insert({
       user_id: user.id,
@@ -93,7 +92,7 @@ export async function updateTransactionAction(input: z.infer<typeof UpdateTransa
   if (parsed.paid === true) update.paid_at = new Date().toISOString()
   if (parsed.paid === false) update.paid_at = null
 
-  const { data, error } = await untyped(supabase)
+  const { data, error } = await supabase
     .from("transactions")
     .update(update)
     .eq("id", parsed.id)
@@ -166,7 +165,7 @@ async function nextOpenInvoiceDate(
   const twoYearsAgo = new Date(Date.now() - 2 * 365.25 * 86400_000)
     .toISOString()
     .slice(0, 10)
-  const { data: lumpSumsRaw } = await untyped(supabase)
+  const { data: lumpSumsRaw } = await supabase
     .from("transactions")
     .select("merchant, paid_at, is_transfer, type")
     .eq("user_id", userId)
@@ -323,7 +322,7 @@ export async function resolvePendingCaptureAction(
     )
   }
 
-  const { data: tx, error: txErr } = await untyped(supabase)
+  const { data: tx, error: txErr } = await supabase
     .from("transactions")
     .insert({
       user_id: user.id,
@@ -469,9 +468,8 @@ export async function heartbeatAction(): Promise<void> {
   try {
     const user = await requireUser()
     const admin = (await import("@/lib/supabase/admin")).createAdminClient()
-    const db = (await import("@/lib/supabase/untyped")).untyped(admin)
 
-    const { data: latest } = await db
+    const { data: latest } = await admin
       .from("login_events")
       .select("happened_at")
       .eq("user_id", user.id)
@@ -497,7 +495,7 @@ export async function heartbeatAction(): Promise<void> {
     const ip = ipRaw ? Buffer.from(ipRaw).toString("base64").slice(0, 24) : null
     const ua = h.get("user-agent")?.slice(0, 512) ?? null
 
-    await db.from("login_events").insert({
+    await admin.from("login_events").insert({
       user_id: user.id,
       ip,
       user_agent: ua,
