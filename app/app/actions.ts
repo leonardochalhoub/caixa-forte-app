@@ -4,10 +4,9 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
-import { parseTransaction, transcribeAudio, ParserError } from "@/lib/parser/parse-transaction"
-import { resolveAccountId, resolveCategoryId } from "@/lib/parser/resolve"
+import { transcribeAudio } from "@/lib/parser/parse-transaction"
+import { resolveCategoryId } from "@/lib/parser/resolve"
 import { untyped } from "@/lib/supabase/untyped"
-import type { CategoryNode } from "@/lib/parser/prompt"
 
 const CreateTransactionSchema = z.object({
   type: z.enum(["income", "expense"]),
@@ -391,254 +390,6 @@ export interface CaptureResult {
   fallbackFormNeeded?: boolean
 }
 
-async function loadUserContext(userId: string) {
-  const supabase = await createServerClient()
-  const [{ data: categoriesRaw }, { data: accountsRaw }] = await Promise.all([
-    supabase
-      .from("categories")
-      .select("id, name, parent_id, is_income")
-      .eq("user_id", userId)
-      .is("archived_at", null)
-      .order("sort_order"),
-    supabase
-      .from("accounts")
-      .select("id, name")
-      .eq("user_id", userId)
-      .is("archived_at", null)
-      .order("sort_order"),
-  ])
-
-  const categoriesFlat = categoriesRaw ?? []
-  const accounts = accountsRaw ?? []
-
-  const parents = categoriesFlat.filter((c) => c.parent_id === null)
-  const categoriesTree: CategoryNode[] = parents.map((p) => ({
-    id: p.id,
-    name: p.name,
-    is_income: p.is_income,
-    parent_id: null,
-    children: categoriesFlat
-      .filter((c) => c.parent_id === p.id)
-      .map((c) => ({ id: c.id, name: c.name, is_income: c.is_income })),
-  }))
-
-  return { supabase, categoriesFlat, categoriesTree, accounts }
-}
-
-function channelToSource(channel: CaptureChannel): string {
-  if (channel === "telegram_text") return "telegram_text"
-  if (channel === "telegram_voice") return "telegram_voice"
-  if (channel === "web_voice") return "web_voice"
-  return "web"
-}
-
-export type CaptureChannel =
-  | "web_text"
-  | "web_voice"
-  | "telegram_text"
-  | "telegram_voice"
-
-export async function persistCaptureAndTransaction(args: {
-  userId: string
-  channel: CaptureChannel
-  rawInput: string
-  transcription: string | null
-  durationMs: number
-  model: string
-  parseResult?: {
-    amount_cents: number
-    type: "income" | "expense"
-    category_name: string
-    subcategory_name: string | null
-    merchant: string | null
-    occurred_on: string
-    note: string | null
-    confidence: number
-    account_hint: string | null
-    metadata: Record<string, unknown>
-  }
-  error?: string
-}): Promise<CaptureResult> {
-  const { supabase, categoriesFlat, accounts } = await loadUserContext(args.userId)
-
-  if (!args.parseResult || args.error) {
-    const { data: captureRow, error } = await supabase
-      .from("capture_messages")
-      .insert({
-        user_id: args.userId,
-        channel: args.channel,
-        raw_input: args.rawInput,
-        transcription: args.transcription,
-        error: args.error ?? "parse_failed",
-        duration_ms: args.durationMs,
-        model: args.model,
-        metadata: null,
-      })
-      .select("id")
-      .single()
-    if (error) throw new Error(error.message)
-    return {
-      ok: false,
-      captureId: captureRow.id,
-      error: args.error ?? "Não consegui interpretar.",
-      transcription: args.transcription ?? undefined,
-      fallbackFormNeeded: true,
-    }
-  }
-
-  const p = args.parseResult
-  let categoryId = resolveCategoryId(
-    { category_name: p.category_name, subcategory_name: p.subcategory_name, type: p.type },
-    categoriesFlat,
-  )
-
-  // Auto-create categorias que o Groq sugeriu e não existem ainda
-  if (!categoryId) {
-    const newParent = await supabase
-      .from("categories")
-      .insert({
-        user_id: args.userId,
-        name: p.category_name,
-        is_income: p.type === "income",
-      })
-      .select("id")
-      .single()
-    if (newParent.error) throw new Error(newParent.error.message)
-    categoryId = newParent.data.id
-
-    if (p.subcategory_name) {
-      const newChild = await supabase
-        .from("categories")
-        .insert({
-          user_id: args.userId,
-          parent_id: categoryId,
-          name: p.subcategory_name,
-          is_income: p.type === "income",
-        })
-        .select("id")
-        .single()
-      if (!newChild.error && newChild.data) {
-        categoryId = newChild.data.id
-      }
-    }
-  } else if (p.subcategory_name) {
-    // Pai existe mas filho pode não existir; cria se faltar
-    const currentCat = categoriesFlat.find((c) => c.id === categoryId)
-    const parentIdForLookup = currentCat?.parent_id ?? categoryId
-    const childMatch = categoriesFlat.find(
-      (c) =>
-        c.parent_id === parentIdForLookup &&
-        c.name.toLowerCase().trim() === p.subcategory_name!.toLowerCase().trim(),
-    )
-    if (!childMatch && currentCat && !currentCat.parent_id) {
-      const newChild = await supabase
-        .from("categories")
-        .insert({
-          user_id: args.userId,
-          parent_id: currentCat.id,
-          name: p.subcategory_name,
-          is_income: p.type === "income",
-        })
-        .select("id")
-        .single()
-      if (!newChild.error && newChild.data) {
-        categoryId = newChild.data.id
-      }
-    }
-  }
-
-  const accountId = resolveAccountId(p.account_hint, accounts)
-
-  if (!accountId) {
-    const { data: captureRow, error } = await supabase
-      .from("capture_messages")
-      .insert({
-        user_id: args.userId,
-        channel: args.channel,
-        raw_input: args.rawInput,
-        transcription: args.transcription,
-        groq_parse_json: p as unknown as never,
-        groq_confidence: p.confidence,
-        error: "no_account",
-        duration_ms: args.durationMs,
-        model: args.model,
-        metadata: { resolve: { category_id: categoryId, account_id: null } },
-      })
-      .select("id")
-      .single()
-    if (error) throw new Error(error.message)
-    const errMsg =
-      accounts.length === 0
-        ? "Você não tem nenhuma conta ativa. Adicione uma em /app/contas."
-        : `Não entendi de qual conta. Diga na mensagem (ex: "pelo Nubank", "na Caixa") e tente de novo.`
-    return {
-      ok: false,
-      captureId: captureRow.id,
-      error: errMsg,
-      fallbackFormNeeded: true,
-    }
-  }
-
-  const { data: tx, error: txErr } = await supabase
-    .from("transactions")
-    .insert({
-      user_id: args.userId,
-      account_id: accountId,
-      category_id: categoryId,
-      type: p.type,
-      amount_cents: p.amount_cents,
-      occurred_on: p.occurred_on,
-      merchant: p.merchant,
-      note: p.note,
-      source: channelToSource(args.channel),
-      raw_input: args.rawInput,
-      groq_parse_json: p as unknown as never,
-      groq_confidence: p.confidence,
-    })
-    .select("id")
-    .single()
-  if (txErr) throw new Error(txErr.message)
-
-  const { data: captureRow, error: capErr } = await supabase
-    .from("capture_messages")
-    .insert({
-      user_id: args.userId,
-      channel: args.channel,
-      raw_input: args.rawInput,
-      transcription: args.transcription,
-      groq_parse_json: p as unknown as never,
-      groq_confidence: p.confidence,
-      transaction_id: tx.id,
-      duration_ms: args.durationMs,
-      model: args.model,
-      metadata: {
-        resolved: { category_id: categoryId, account_id: accountId },
-        hint: p.account_hint,
-      },
-    })
-    .select("id")
-    .single()
-  if (capErr) throw new Error(capErr.message)
-
-  revalidatePath("/app")
-  revalidatePath("/app/transacoes")
-
-  return {
-    ok: true,
-    transactionId: tx.id,
-    captureId: captureRow.id,
-    parsed: {
-      amountCents: p.amount_cents,
-      type: p.type,
-      categoryName: p.category_name,
-      subcategoryName: p.subcategory_name,
-      merchant: p.merchant,
-      occurredOn: p.occurred_on,
-      confidence: p.confidence,
-    },
-  }
-}
-
 const TextCaptureInput = z.object({ rawInput: z.string().trim().min(1).max(2000) })
 
 export async function captureFromTextAction(
@@ -646,40 +397,14 @@ export async function captureFromTextAction(
 ): Promise<CaptureResult> {
   const user = await requireUser()
   const parsed = TextCaptureInput.parse(input)
-  const { categoriesTree, accounts } = await loadUserContext(user.id)
-
-  try {
-    const { parsed: p, durationMs, model } = await parseTransaction({
-      rawInput: parsed.rawInput,
-      categories: categoriesTree,
-      accounts: accounts,
-    })
-    return persistCaptureAndTransaction({
-      userId: user.id,
-      channel: "web_text",
-      rawInput: parsed.rawInput,
-      transcription: null,
-      durationMs,
-      model,
-      parseResult: p,
-    })
-  } catch (err) {
-    const message =
-      err instanceof ParserError
-        ? err.message
-        : err instanceof Error
-          ? err.message
-          : "Falha ao interpretar"
-    return persistCaptureAndTransaction({
-      userId: user.id,
-      channel: "web_text",
-      rawInput: parsed.rawInput,
-      transcription: null,
-      durationMs: 0,
-      model: "unknown",
-      error: message,
-    })
-  }
+  const supabase = await createServerClient()
+  const { captureText } = await import("@/lib/capture/pipeline")
+  return captureText({
+    client: supabase,
+    userId: user.id,
+    channel: "web_text",
+    rawInput: parsed.rawInput,
+  })
 }
 
 export async function transcribeAudioOnlyAction(
@@ -724,56 +449,14 @@ export async function captureFromAudioAction(formData: FormData): Promise<Captur
   if (blob.size === 0) throw new Error("Áudio vazio.")
   if (blob.size > 25 * 1024 * 1024) throw new Error("Áudio muito grande (máx 25MB).")
 
-  let transcription = ""
-  let whisperModel = "unknown"
-  let whisperMs = 0
-  try {
-    const result = await transcribeAudio(blob)
-    transcription = result.text
-    whisperModel = result.model
-    whisperMs = result.durationMs
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Whisper falhou"
-    return persistCaptureAndTransaction({
-      userId: user.id,
-      channel: "web_voice",
-      rawInput: "[áudio não transcrito]",
-      transcription: null,
-      durationMs: 0,
-      model: "unknown",
-      error: `Transcrição falhou: ${message}`,
-    })
-  }
-
-  const { categoriesTree, accounts } = await loadUserContext(user.id)
-
-  try {
-    const { parsed: p, durationMs, model } = await parseTransaction({
-      rawInput: transcription,
-      categories: categoriesTree,
-      accounts: accounts,
-    })
-    return persistCaptureAndTransaction({
-      userId: user.id,
-      channel: "web_voice",
-      rawInput: transcription,
-      transcription,
-      durationMs: whisperMs + durationMs,
-      model: `${whisperModel}+${model}`,
-      parseResult: p,
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Falha ao interpretar"
-    return persistCaptureAndTransaction({
-      userId: user.id,
-      channel: "web_voice",
-      rawInput: transcription,
-      transcription,
-      durationMs: whisperMs,
-      model: whisperModel,
-      error: message,
-    })
-  }
+  const supabase = await createServerClient()
+  const { captureAudio } = await import("@/lib/capture/pipeline")
+  return captureAudio({
+    client: supabase,
+    userId: user.id,
+    channel: "web_voice",
+    blob,
+  })
 }
 
 /**
