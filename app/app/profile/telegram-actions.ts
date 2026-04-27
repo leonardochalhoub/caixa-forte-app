@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createAdminClient } from "@/lib/supabase/admin"
-import { untyped } from "@/lib/supabase/untyped"
 
 // 8-char token (A-Z, 0-9, no lookalikes) valid for 15 minutes. Single
 // active token per user — generating a new one replaces the old so the
@@ -29,15 +28,14 @@ export interface TelegramStatus {
 export async function getTelegramStatusAction(): Promise<TelegramStatus> {
   const user = await requireUser()
   const admin = createAdminClient()
-  const db = untyped(admin)
 
-  const { data: profile } = await db
+  const { data: profile } = await admin
     .from("profiles")
     .select("telegram_chat_id")
     .eq("user_id", user.id)
     .maybeSingle()
 
-  const { data: token } = await db
+  const { data: token } = await admin
     .from("telegram_link_tokens")
     .select("token, expires_at")
     .eq("user_id", user.id)
@@ -46,14 +44,14 @@ export async function getTelegramStatusAction(): Promise<TelegramStatus> {
     .maybeSingle()
 
   const now = Date.now()
-  const expiresAt = token?.expires_at as string | undefined
+  const expiresAt = token?.expires_at
   const stillValid =
     expiresAt && new Date(expiresAt).getTime() > now ? expiresAt : null
 
   return {
     linked: !!profile?.telegram_chat_id,
-    chatId: (profile?.telegram_chat_id as number | null) ?? null,
-    token: stillValid ? (token?.token as string) : null,
+    chatId: profile?.telegram_chat_id ?? null,
+    token: stillValid ? (token?.token ?? null) : null,
     tokenExpiresAt: stillValid ?? null,
   }
 }
@@ -61,18 +59,17 @@ export async function getTelegramStatusAction(): Promise<TelegramStatus> {
 export async function generateTelegramTokenAction(): Promise<TelegramStatus> {
   const user = await requireUser()
   const admin = createAdminClient()
-  const db = untyped(admin)
 
   // Clear any expired or superseded tokens for this user before inserting
   // a fresh one — keeps the table small and enforces one-active-at-a-time.
-  await db.from("telegram_link_tokens").delete().eq("user_id", user.id)
+  await admin.from("telegram_link_tokens").delete().eq("user_id", user.id)
 
   // Retry a few times to dodge rare collisions on the PK.
   let token = ""
   let inserted = false
   for (let i = 0; i < 5 && !inserted; i++) {
     token = randomToken(8)
-    const { error } = await db.from("telegram_link_tokens").insert({
+    const { error } = await admin.from("telegram_link_tokens").insert({
       token,
       user_id: user.id,
       expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
@@ -88,13 +85,12 @@ export async function generateTelegramTokenAction(): Promise<TelegramStatus> {
 export async function unlinkTelegramAction(): Promise<TelegramStatus> {
   const user = await requireUser()
   const admin = createAdminClient()
-  const db = untyped(admin)
 
-  await db
+  await admin
     .from("profiles")
     .update({ telegram_chat_id: null })
     .eq("user_id", user.id)
-  await db.from("telegram_link_tokens").delete().eq("user_id", user.id)
+  await admin.from("telegram_link_tokens").delete().eq("user_id", user.id)
 
   revalidatePath("/app/profile")
   return getTelegramStatusAction()
