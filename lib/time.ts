@@ -72,3 +72,43 @@ export function resolveRelativeDate(phrase: string, now?: Date): string | null {
 export function formatInSaoPaulo(date: Date, pattern = "yyyy-MM-dd HH:mm"): string {
   return formatInTimeZone(date, APP_TIMEZONE, pattern)
 }
+
+// Meses pt-BR com capital — usado em labels de UI ("Janeiro 2026").
+export const MONTH_NAMES_PT = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+] as const
+
+// Meses pt-BR sem acento, lowercase — usado pra match case-insensitive
+// em strings de merchant tipo "Nubank Cartão Marco 2026" (sem acento
+// já que normalizamos via NFD).
+export const MONTHS_PT_LOWER = [
+  "janeiro",
+  "fevereiro",
+  "marco",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+] as const
+
+// Mes (1..12) → 0-based index do array de meses; -1 se não bate.
+export function monthIndexFromName(name: string): number {
+  const norm = name.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
+  return MONTHS_PT_LOWER.indexOf(norm as (typeof MONTHS_PT_LOWER)[number])
+}

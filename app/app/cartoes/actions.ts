@@ -5,6 +5,11 @@ import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { untyped } from "@/lib/supabase/untyped"
+import {
+  bankKeyOfCard,
+  normalizeMerchant,
+  parseInvoiceMonth,
+} from "@/lib/invoices/bucket"
 
 const CreateCardSchema = z.object({
   bank: z.string().trim().min(1).max(60),
@@ -69,36 +74,11 @@ const PayInvoiceSchema = z.object({
   invoiceLabel: z.string().min(1).max(60),
 })
 
-const MONTHS_PT_LOWER = [
-  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-]
-
-function normalizeStr(s: string): string {
-  return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-}
-
-function bankKeyFromCardName(cardName: string): string {
-  const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
-  return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
-}
-
-// Extrai monthLowerNoAccent + year do invoiceLabel ("Nubank Cartão · Abril 2026")
-// pra casar com o merchant do lump-sum agendado ("Nubank Cartão Abril 2026").
-function parseInvoiceMonth(invoiceLabel: string): {
-  monthName: string
-  year: string
-} | null {
-  const norm = normalizeStr(invoiceLabel)
-  const yearMatch = norm.match(/(20\d{2})/)
-  if (!yearMatch) return null
-  for (const monthName of MONTHS_PT_LOWER) {
-    if (norm.includes(monthName)) {
-      return { monthName, year: yearMatch[1]! }
-    }
-  }
-  return null
-}
+// Helpers vêm de @/lib/invoices/bucket — fonte única.
+// (`bankKeyFromCardName` e `normalizeStr` virou aliases pra manter o
+// resto deste arquivo legível sem renomes massivos.)
+const normalizeStr = normalizeMerchant
+const bankKeyFromCardName = bankKeyOfCard
 
 // Creates a transfer pair: expense on source checking + matching
 // income on the credit card account. Both marked is_transfer=true so
@@ -172,9 +152,8 @@ export async function payInvoiceAction(
   // fatura é paga, todas as compras dentro dela passam pra status pago.
   let markedChargeIds: string[] = []
   if (invoiceMonth) {
-    const monthIdx = MONTHS_PT_LOWER.indexOf(invoiceMonth.monthName)
-    if (monthIdx >= 0) {
-      const invoiceYM = `${invoiceMonth.year}-${String(monthIdx + 1).padStart(2, "0")}`
+    {
+      const invoiceYM = invoiceMonth.invoiceYM
       const { data: charges } = await untyped(supabase)
         .from("transactions")
         .select("id, occurred_on")

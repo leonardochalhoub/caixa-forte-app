@@ -12,21 +12,13 @@ import { formatPtBrDateShort } from "@/lib/time"
 import { CardsManager } from "./_components/CardsManager"
 import { ClosingDayEditor } from "./_components/ClosingDayEditor"
 import { PayInvoiceButton } from "./_components/PayInvoiceButton"
-
-const MONTH_NAMES_PT = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-]
+import { MONTH_NAMES_PT } from "@/lib/time"
+import {
+  bankKeyOfCard,
+  chargeInvoiceMonth,
+  merchantInvoiceMonth,
+  normalizeMerchant,
+} from "@/lib/invoices/bucket"
 
 export default async function CartoesPage() {
   const user = await requireOnboardedUser()
@@ -74,56 +66,6 @@ export default async function CartoesPage() {
     [...(cards ?? []), ...(checkingAccounts ?? [])].map((a) => [a.id, a]),
   )
 
-  const normalize = (s: string) =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-  const bankKeyOf = (cardName: string): string => {
-    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
-    return normalize(cleaned.split(/\s+/)[0] ?? "")
-  }
-
-  // Map de mês pt-BR (sem acento, lowercase) -> 1..12
-  const MONTHS_PT_LOWER = [
-    "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-  ]
-
-  // Bucket de CHARGE itemized: respeita closing_day. Compra feita
-  // após o dia de fechamento entra na fatura do mês seguinte.
-  const chargeInvoiceMonth = (
-    occurredOn: string,
-    closingDay: number | null,
-  ): string => {
-    if (!closingDay) return occurredOn.slice(0, 7) // fallback: mês-calendário
-    const day = Number(occurredOn.slice(8, 10))
-    if (day <= closingDay) return occurredOn.slice(0, 7)
-    // Compra depois do fechamento → fatura do mês seguinte
-    const [yStr, mStr] = occurredOn.slice(0, 7).split("-")
-    const y = Number(yStr)
-    const m = Number(mStr)
-    const nextTotal = y * 12 + (m - 1) + 1
-    const ny = Math.floor(nextTotal / 12)
-    const nm = (nextTotal % 12) + 1
-    return `${ny}-${String(nm).padStart(2, "0")}`
-  }
-
-  // Bucket de LUMP-SUM: extrai o mês da fatura do merchant
-  // ("Caixa Cartão Abril 2026" → 2026-04). Se não conseguir parsear,
-  // cai pro mês-calendário do occurred_on.
-  const lumpSumInvoiceMonth = (
-    merchant: string | null,
-    occurredOn: string,
-  ): string => {
-    const m = normalize(merchant ?? "")
-    const yearMatch = m.match(/(20\d{2})/)
-    if (!yearMatch) return occurredOn.slice(0, 7)
-    for (let i = 0; i < 12; i++) {
-      if (m.includes(MONTHS_PT_LOWER[i]!)) {
-        return `${yearMatch[1]}-${String(i + 1).padStart(2, "0")}`
-      }
-    }
-    return occurredOn.slice(0, 7)
-  }
-
   type InvoiceCharge = {
     id: string
     amount_cents: number
@@ -141,7 +83,7 @@ export default async function CartoesPage() {
     created_at: string
     closing_day?: number | null
   }) => {
-    const bankKey = bankKeyOf(card.name)
+    const bankKey = bankKeyOfCard(card.name)
     const closingDay = card.closing_day ?? null
     // Separa em 2 grupos: tx no cartão (charges itemizados) e
     // lump-sums em OUTRAS contas cujo merchant contém "<banco> cartão".
@@ -155,7 +97,7 @@ export default async function CartoesPage() {
       if (t.account_id === card.id) return false
       if (t.is_transfer) return false
       if (t.type !== "expense") return false
-      const m = normalize(t.merchant ?? "")
+      const m = normalizeMerchant(t.merchant)
       // "Pagamento fatura *" é o expense do par transfer criado pelo
       // botão Pagar; não conta como lump-sum (já é representado via
       // transferPayments do lado do cartão). Sem essa exclusão a tx
@@ -214,7 +156,7 @@ export default async function CartoesPage() {
       })
     }
     for (const t of lumpSums) {
-      const key = lumpSumInvoiceMonth(t.merchant, t.occurred_on)
+      const key = merchantInvoiceMonth(t.merchant, t.occurred_on)
       const b = ensure(key)
       b.lumpSumCents += Number(t.amount_cents)
       b.lumpSumEntries.push({
@@ -229,7 +171,7 @@ export default async function CartoesPage() {
       if (t.paid_at) b.paidCents += Number(t.amount_cents)
     }
     for (const t of transferPayments) {
-      const key = lumpSumInvoiceMonth(t.merchant, t.occurred_on)
+      const key = merchantInvoiceMonth(t.merchant, t.occurred_on)
       const b = ensure(key)
       b.transferPaidCents += Number(t.amount_cents)
     }

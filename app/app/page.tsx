@@ -11,6 +11,12 @@ import { formatBRL } from "@/lib/money"
 import { UF_CENTROIDS } from "@/lib/ibge"
 import { explainTrends } from "@/lib/ai/trend-explainer"
 import Link from "next/link"
+import {
+  bankKeyOfCard,
+  chargeInvoiceMonth,
+  merchantInvoiceMonth,
+  normalizeMerchant,
+} from "@/lib/invoices/bucket"
 import { ArrowDown, ArrowUp, ChevronRight } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { ClockWeather } from "./_components/ClockWeather"
@@ -255,12 +261,8 @@ export default async function DashboardPage() {
   // "<banco> Cartão <mês>" em qualquer conta — útil quando o user
   // registra a fatura como agendada na corrente em vez de itemizar as
   // compras no cartão. Só entra na dívida exibida se paid_at=null.
-  const normalizeStr = (s: string) =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-  const bankKey = (name: string): string => {
-    const cleaned = name.replace(/cart[ãa]o.*/i, "").trim()
-    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
-  }
+  const normalizeStr = normalizeMerchant
+  const bankKey = bankKeyOfCard
   // Busca todas as tx do user (incluindo agendadas) pra detectar
   // lump-sums. Limitado a expense is_transfer=false.
   const { data: allTxRaw } = await untyped(supabase)
@@ -299,40 +301,9 @@ export default async function DashboardPage() {
   // mês/ano do merchant pra lump-sums e transfer payments. Resultado:
   // dívida exibida = soma das faturas em aberto. Funciona certo em
   // casos de over-payment (refunds, pagamento antecipado).
-  const MONTHS_PT_LOWER_HOME = [
-    "janeiro","fevereiro","marco","abril","maio","junho",
-    "julho","agosto","setembro","outubro","novembro","dezembro",
-  ]
-  const chargeInvoiceMonthHome = (
-    occurredOn: string,
-    closingDay: number | null,
-  ): string => {
-    if (!closingDay) return occurredOn.slice(0, 7)
-    const day = Number(occurredOn.slice(8, 10))
-    if (day <= closingDay) return occurredOn.slice(0, 7)
-    const [y, m] = occurredOn.slice(0, 7).split("-").map(Number)
-    const total = y! * 12 + (m! - 1) + 1
-    const ny = Math.floor(total / 12)
-    const nm = (total % 12) + 1
-    return `${ny}-${String(nm).padStart(2, "0")}`
-  }
-  const merchantInvoiceMonthHome = (
-    merchant: string | null,
-    occurredOn: string,
-  ): string => {
-    const m = (merchant ?? "")
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase()
-    const yearMatch = m.match(/(20\d{2})/)
-    if (!yearMatch) return occurredOn.slice(0, 7)
-    for (let i = 0; i < 12; i++) {
-      if (m.includes(MONTHS_PT_LOWER_HOME[i]!)) {
-        return `${yearMatch[1]}-${String(i + 1).padStart(2, "0")}`
-      }
-    }
-    return occurredOn.slice(0, 7)
-  }
+  // Helpers vêm todos de @/lib/invoices/bucket — fonte única.
+  const chargeInvoiceMonthHome = chargeInvoiceMonth
+  const merchantInvoiceMonthHome = merchantInvoiceMonth
   // allTxs precisa de closing_day por cartão; flowRealized não tem
   // occurred_on/merchant. Usa allExpenseTx + tx do próprio cartão (já
   // temos via flowRealized que tem account_id, mas falta merchant/
@@ -462,12 +433,6 @@ export default async function DashboardPage() {
   // correntes, o valor exibido em Agendadas e Últimas transações é o
   // TOTAL da fatura = lump-sum + charges itemizados no cartão do mesmo
   // banco/mês. Sem isso o user vê R$ 6.415,25 em vez de R$ 7.196,69.
-  const normalizeMerchant = (s: string) =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-  const bankKeyOfCard = (cardName: string): string => {
-    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
-    return normalizeMerchant(cleaned.split(/\s+/)[0] ?? "")
-  }
   const cardsByBankKey = new Map<string, string>() // bankKey -> card.id
   for (const a of accounts ?? []) {
     if (a.type !== "credit") continue
