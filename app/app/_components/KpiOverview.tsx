@@ -208,10 +208,14 @@ function HeroBalance({
               <p className="text-[10px] uppercase tracking-[0.22em] text-muted">
                 Saldo total agora
               </p>
-              {/* Tamanho responsivo em 3 steps + truncate previne overflow
-                  em smartphones estreitos quando o saldo passa de R$ 100k. */}
+              {/* Fluid sizing: clamp(min, preferred-vw, max) escala com a
+                  largura do viewport. Cap em ~text-5xl (48px) pra valor
+                  caber em mobile (iPhone SE 320px) mesmo com R$ 1.000.000,00
+                  (15 chars). Conselheira Design v3 pediu hero grande, mas
+                  user reportou overflow em R$ 15.218 — clamp resolve sem
+                  precisar truncar (perda de informação financeira). */}
               <p
-                className={`truncate font-mono text-4xl font-semibold tabular-nums tracking-tight sm:text-5xl md:text-6xl ${
+                className={`font-mono font-semibold leading-none tabular-nums tracking-tight [font-size:clamp(1.625rem,6.5vw,3rem)] ${
                   totalNeg ? "text-expense" : "text-ink"
                 }`}
                 title={formatBRL(totalBalanceCents)}
