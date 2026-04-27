@@ -118,3 +118,85 @@ export async function autoSyncFipeForPeriod(
     .select("id, period, line_key, label, amount_cents, note")
   return (inserted ?? []) as AdjRow[]
 }
+
+// Auto-sync de ajustes manuais recorrentes (não-FIPE).
+// User reportou: ao abrir Balanço Anual, o financiamento do carro
+// (passivo, source=null, slug "financ-nissan") sumia. autoSyncFipeForPeriod
+// só cobria FIPE — ajustes manuais como financiamento, alugueis fixos,
+// imóveis avaliados manualmente etc ficavam órfãos.
+//
+// Estratégia: line_key tem formato "section::custom:TIMESTAMP:slug-final".
+// O slug-final identifica a "coisa" (financ-nissan, fipe-XXX, casa-praia
+// etc). Pra cada (section, slug-final) que não está no period atual,
+// copia o mais recente de outro period (mesmo valor, sem fetch externo).
+//
+// Identidade: `${section}::${slugFinal}` — ignora timestamp.
+// Skip de :registry: (lançamentos contábeis de eventos pontuais como
+// pensão paga em mês X — esses NÃO devem propagar).
+export async function autoSyncCustomAdjustments(
+  supabase: Client,
+  userId: string,
+  periodStr: string,
+  currentAdjustments: AdjRow[],
+): Promise<AdjRow[]> {
+  const { data: allRaw } = await supabase
+    .from("balance_adjustments")
+    .select("id, period, line_key, label, amount_cents, note, metadata")
+    .eq("user_id", userId)
+    .neq("period", periodStr)
+
+  const all = (allRaw ?? []) as AdjRow[]
+
+  function identityOf(lineKey: string): string | null {
+    // section::custom:TS:slug — só propaga `:custom:`, pula `:registry:`
+    const parts = lineKey.split("::")
+    if (parts.length < 2) return null
+    const section = parts[0]
+    const tail = parts[1]
+    if (!tail || !tail.startsWith("custom:")) return null
+    const slugFinal = tail.split(":").slice(2).join(":") // tudo após custom:TS:
+    if (!slugFinal) return null
+    return `${section}::${slugFinal}`
+  }
+
+  // Index do que JÁ existe no period atual.
+  const existingInPeriod = new Set(
+    currentAdjustments
+      .map((a) => identityOf(a.line_key))
+      .filter((x): x is string => x != null),
+  )
+
+  // Templates por identidade — pega o mais recente em outros periods.
+  const templatesByIdentity = new Map<string, AdjRow>()
+  for (const a of all) {
+    const id = identityOf(a.line_key)
+    if (!id) continue
+    if (existingInPeriod.has(id)) continue
+    // Skip FIPE — autoSyncFipeForPeriod já cuida dele com fetch de preço.
+    if ((a.metadata as { source?: string } | null)?.source === "fipe") continue
+    const prev = templatesByIdentity.get(id)
+    if (!prev || a.period > prev.period) templatesByIdentity.set(id, a)
+  }
+
+  if (templatesByIdentity.size === 0) return []
+
+  const newInserts = [...templatesByIdentity.values()].map((t) => {
+    const id = identityOf(t.line_key)!
+    const [section, slugFinal] = id.split("::")
+    return {
+      user_id: userId,
+      period: periodStr,
+      line_key: `${section}::custom:${Date.now()}:${slugFinal}`,
+      label: t.label,
+      amount_cents: t.amount_cents,
+      note: `Valor herdado do período ${t.period.replace("mensal:", "").replace("anual:", "")} — auto-propagado ao abrir esse período. Edite se precisar atualizar.`,
+      metadata: t.metadata ?? null,
+    }
+  })
+
+  const { data: inserted } = await supabase
+    .from("balance_adjustments")
+    .insert(newInserts as never)
+    .select("id, period, line_key, label, amount_cents, note, metadata")
+  return (inserted ?? []) as AdjRow[]
+}

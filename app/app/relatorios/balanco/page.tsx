@@ -9,7 +9,10 @@ import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { BalancoPeriodSelector } from "./_components/BalancoPeriodSelector"
 import { BalancoAIInsight } from "./_components/BalancoAIInsight"
 import { AddRegistryButton } from "./_components/RegistryForm"
-import { autoSyncFipeForPeriod } from "@/lib/reports/balanco-fipe-sync"
+import {
+  autoSyncFipeForPeriod,
+  autoSyncCustomAdjustments,
+} from "@/lib/reports/balanco-fipe-sync"
 import { type SearchParams, parsePeriod } from "@/lib/reports/balanco"
 import {
   fetchBalancoCore,
@@ -55,18 +58,31 @@ export default async function BalancoPage({
       fetchBalancoRegistries(supabase, user.id, periodStr),
     ])
 
-  // Auto-sync FIPE: ao abrir QUALQUER período (mensal ou anual), propaga
-  // ajustes FIPE existentes pra esse period. Sem isso, mudar de
-  // "mensal:2026-04" pra "anual:2026" some com o ajuste do carro
-  // (a query filtra por period exato). Bug reportado pelo user.
+  // Auto-sync ao abrir QUALQUER período (mensal ou anual):
+  //  1. FIPE: propaga ajustes de carros + atualiza preço via API
+  //  2. Custom (não-FIPE): financiamentos, imóveis, etc — propaga
+  //     o último valor conhecido. User edita se precisar atualizar.
+  //
+  // Ambos saneiam o caso "mudei de período e meu carro/financiamento
+  // sumiu" que o user reportou. Bug 1 (FIPE em anual): autoSync não
+  // rodava se period.kind !== 'mensal'. Bug 2 (financiamento em anual):
+  // autoSync só cobria FIPE.
   let adjustments = adjustmentsRaw
-  const newAdjs = await autoSyncFipeForPeriod(
+  const newFipeAdjs = await autoSyncFipeForPeriod(
     supabase,
     user.id,
     periodStr,
     adjustments,
   )
-  if (newAdjs.length > 0) adjustments = [...adjustments, ...newAdjs]
+  if (newFipeAdjs.length > 0) adjustments = [...adjustments, ...newFipeAdjs]
+
+  const newCustomAdjs = await autoSyncCustomAdjustments(
+    supabase,
+    user.id,
+    periodStr,
+    adjustments,
+  )
+  if (newCustomAdjs.length > 0) adjustments = [...adjustments, ...newCustomAdjs]
 
   // === Agregações ===
   const adjustmentsBySection = groupAdjustmentsBySection(adjustments)
