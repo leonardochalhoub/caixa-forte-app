@@ -96,7 +96,20 @@ interface PersistArgs {
     metadata: Record<string, unknown>
   }
   error?: string
+  // Optional pre-loaded context — captureText/captureAudio passam o
+  // que já carregaram pra evitar 2 roundtrips Supabase no mesmo request
+  // (genai-architect flagou waste de ~150ms/req).
+  context?: { categoriesFlat: CategoryFlat[]; accounts: AccountFlat[] }
 }
+
+type CategoryFlat = { id: string; name: string; parent_id: string | null; is_income: boolean }
+type AccountFlat = { id: string; name: string; type: string }
+
+// Threshold mínimo de confidence pra auto-criar categoria/subcategoria
+// nova. Abaixo disso, parqueia em capture_messages com error pra user
+// revisar. Evita poluição de taxonomia com hallucinations do LLM
+// (ex: "Restaurante" vs "Restaurantes" criando duplicata).
+const CATEGORY_AUTO_CREATE_MIN_CONFIDENCE = 0.85
 
 /**
  * Core write path. Persists the parsed transaction (or a failed capture
@@ -105,7 +118,8 @@ interface PersistArgs {
  */
 export async function persistCapture(args: PersistArgs): Promise<CaptureResult> {
   const { client, userId, channel } = args
-  const { categoriesFlat, accounts } = await loadUserContext(client, userId)
+  const { categoriesFlat, accounts } = args.context
+    ?? (await loadUserContext(client, userId))
 
   if (!args.parseResult || args.error) {
     const { data: captureRow, error } = await client
@@ -143,6 +157,41 @@ export async function persistCapture(args: PersistArgs): Promise<CaptureResult> 
   )
 
   if (!categoryId) {
+    // Threshold: só auto-cria categoria nova quando confidence ≥ 0.85.
+    // Abaixo disso, parqueia capture com error="category_uncertain"
+    // (genai-architect flagou: senão LLM hallucinations poluem taxonomia
+    // com "Restaurante" vs "Restaurantes" duplicado).
+    if (p.confidence < CATEGORY_AUTO_CREATE_MIN_CONFIDENCE) {
+      const { data: captureRow, error } = await client
+        .from("capture_messages")
+        .insert({
+          user_id: userId,
+          channel,
+          raw_input: args.rawInput,
+          transcription: args.transcription,
+          groq_parse_json: p as unknown as never,
+          groq_confidence: p.confidence,
+          error: "category_uncertain",
+          duration_ms: args.durationMs,
+          model: args.model,
+          metadata: {
+            resolve: { category_id: null, account_id: null },
+            suggested_category: p.category_name,
+            suggested_subcategory: p.subcategory_name,
+            confidence: p.confidence,
+          },
+        })
+        .select("id")
+        .single()
+      if (error) throw new Error(error.message)
+      return {
+        ok: false,
+        captureId: captureRow.id,
+        error: `Categoria "${p.category_name}" não existe e a confiança (${Math.round(p.confidence * 100)}%) é baixa pra criar automaticamente. Crie manualmente em /app/categorias ou refraseie.`,
+        fallbackFormNeeded: true,
+      }
+    }
+
     const newParent = await client
       .from("categories")
       .insert({
@@ -402,12 +451,13 @@ export async function captureText(args: {
   rawInput: string
 }): Promise<CaptureResult> {
   const { client, userId, channel, rawInput } = args
-  const { categoriesTree, accounts } = await loadUserContext(client, userId)
+  const ctx = await loadUserContext(client, userId)
+  const persistContext = { categoriesFlat: ctx.categoriesFlat, accounts: ctx.accounts }
   try {
     const { parsed: p, durationMs, model } = await parseTransaction({
       rawInput,
-      categories: categoriesTree,
-      accounts,
+      categories: ctx.categoriesTree,
+      accounts: ctx.accounts,
     })
     return persistCapture({
       client,
@@ -418,6 +468,7 @@ export async function captureText(args: {
       durationMs,
       model,
       parseResult: p,
+      context: persistContext,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Falha ao interpretar"
@@ -430,6 +481,7 @@ export async function captureText(args: {
       durationMs: 0,
       model: "unknown",
       error: message,
+      context: persistContext,
     })
   }
 }
@@ -467,12 +519,13 @@ export async function captureAudio(args: {
     })
   }
 
-  const { categoriesTree, accounts } = await loadUserContext(client, userId)
+  const ctx = await loadUserContext(client, userId)
+  const persistContext = { categoriesFlat: ctx.categoriesFlat, accounts: ctx.accounts }
   try {
     const { parsed: p, durationMs, model } = await parseTransaction({
       rawInput: transcription,
-      categories: categoriesTree,
-      accounts,
+      categories: ctx.categoriesTree,
+      accounts: ctx.accounts,
     })
     return persistCapture({
       client,
@@ -483,6 +536,7 @@ export async function captureAudio(args: {
       durationMs: whisperMs + durationMs,
       model: `${whisperModel}+${model}`,
       parseResult: p,
+      context: persistContext,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : "Falha ao interpretar"
@@ -495,6 +549,7 @@ export async function captureAudio(args: {
       durationMs: whisperMs,
       model: whisperModel,
       error: message,
+      context: persistContext,
     })
   }
 }
