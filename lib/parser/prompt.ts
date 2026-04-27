@@ -83,3 +83,106 @@ FORMATO DE SAÍDA (JSON ESTRITO, sem texto fora do JSON):
   "metadata": {}
 }`
 }
+
+// Few-shot examples passados como mensagens alternadas user/assistant.
+// O modelo vê: system → user1 → assistant1 → user2 → assistant2 → ... → user(real).
+// Cobre 4 padrões distintos de input em pt-BR pra reduzir variância
+// em cada um. Confidence em cada exemplo segue a tabela do system.
+export function parserFewShotMessages(args: {
+  todayIso: string // yyyy-mm-dd
+}): Array<{ role: "user" | "assistant"; content: string }> {
+  const today = args.todayIso
+  return [
+    {
+      role: "user",
+      content: "gastei 25 ifood ontem pelo nubank",
+    },
+    {
+      role: "assistant",
+      content: JSON.stringify({
+        amount_cents: 2500,
+        type: "expense",
+        category_name: "Restaurantes",
+        subcategory_name: "Delivery",
+        merchant: "iFood",
+        occurred_on: shiftDays(today, -1),
+        note: null,
+        confidence: 0.95,
+        account_hint: null,
+        metadata: {},
+      }),
+    },
+    {
+      role: "user",
+      content: "pedágio 6,60",
+    },
+    {
+      role: "assistant",
+      content: JSON.stringify({
+        amount_cents: 660,
+        type: "expense",
+        category_name: "Transporte",
+        subcategory_name: "Pedágio",
+        merchant: null,
+        occurred_on: today,
+        note: null,
+        confidence: 0.78,
+        account_hint: null,
+        metadata: { ambiguous_fields: ["account"] },
+      }),
+    },
+    {
+      role: "user",
+      content: "recebi 3500 salário dia 5",
+    },
+    {
+      role: "assistant",
+      content: JSON.stringify({
+        amount_cents: 350000,
+        type: "income",
+        category_name: "Salário",
+        subcategory_name: null,
+        merchant: null,
+        occurred_on: lastDayOfMonth(today, 5),
+        note: null,
+        confidence: 0.92,
+        account_hint: null,
+        metadata: {},
+      }),
+    },
+    {
+      role: "user",
+      content: "farmácia 45",
+    },
+    {
+      role: "assistant",
+      content: JSON.stringify({
+        amount_cents: 4500,
+        type: "expense",
+        category_name: "Saúde",
+        subcategory_name: "Farmácia",
+        merchant: null,
+        occurred_on: today,
+        note: null,
+        confidence: 0.82,
+        account_hint: null,
+        metadata: {},
+      }),
+    },
+  ]
+}
+
+function shiftDays(iso: string, delta: number): string {
+  const d = new Date(iso + "T12:00:00Z")
+  d.setUTCDate(d.getUTCDate() + delta)
+  return d.toISOString().slice(0, 10)
+}
+
+function lastDayOfMonth(todayIso: string, day: number): string {
+  // "dia 5" — assume mês atual; se já passou, mês passado.
+  const today = new Date(todayIso + "T12:00:00Z")
+  const candidate = new Date(today)
+  candidate.setUTCDate(day)
+  if (candidate > today) candidate.setUTCMonth(candidate.getUTCMonth() - 1)
+  return candidate.toISOString().slice(0, 10)
+}

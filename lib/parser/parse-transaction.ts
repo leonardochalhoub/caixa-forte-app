@@ -1,7 +1,12 @@
 import { getGroqClient, GROQ_MODELS } from "@/lib/groq/client"
 import { nowInSaoPaulo } from "@/lib/time"
 import { ParseResultSchema, type ParseResult } from "./schema"
-import { parserSystemPrompt, type Account, type CategoryNode } from "./prompt"
+import {
+  parserSystemPrompt,
+  parserFewShotMessages,
+  type Account,
+  type CategoryNode,
+} from "./prompt"
 
 export class ParserError extends Error {
   constructor(
@@ -39,11 +44,12 @@ function isRateLimited(err: unknown): boolean {
  * ride out Groq's short-window throttling (typically sub-minute) without
  * blocking the caller for too long.
  */
+type ChatMsg = { role: "system" | "user" | "assistant"; content: string }
+
 async function completeWithRetry(
   groq: ReturnType<typeof getGroqClient>,
   primaryModel: string,
-  system: string,
-  user: string,
+  messages: ChatMsg[],
 ): Promise<{ model: string; content: string; durationMs: number }> {
   if (!groq) throw new ParserError("GROQ_API_KEY não configurada")
 
@@ -61,10 +67,7 @@ async function completeWithRetry(
       const started = Date.now()
       const resp = await groq.chat.completions.create({
         model: a.model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
+        messages,
         response_format: { type: "json_object" },
         temperature: 0.1,
         max_tokens: 512,
@@ -98,17 +101,27 @@ export async function parseTransaction(input: {
   if (!trimmed) throw new ParserError("Entrada vazia")
 
   const now = input.now ?? nowInSaoPaulo()
+  const todayIso = now.toISOString().slice(0, 10)
   const system = parserSystemPrompt({
     categories: input.categories,
     accounts: input.accounts,
     nowIso: now.toISOString(),
   })
+  const fewShots = parserFewShotMessages({ todayIso })
+
+  // Mensagens: system → 4 pares user/assistant de few-shot → user real.
+  // Few-shots melhoram consistência (especialmente em casos de "sem
+  // merchant" e "data implícita") e calibram a confidence retornada.
+  const messages: ChatMsg[] = [
+    { role: "system", content: system },
+    ...fewShots,
+    { role: "user", content: trimmed },
+  ]
 
   const { model, content, durationMs } = await completeWithRetry(
     groq,
     GROQ_MODELS.parser,
-    system,
-    trimmed,
+    messages,
   )
 
   let jsonParsed: unknown
