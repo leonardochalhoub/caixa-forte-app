@@ -387,6 +387,11 @@ export default async function DashboardPage() {
   }): number {
     const base = Number(t.amount_cents)
     const m = normalizeMerchant(t.merchant ?? "")
+    // "Pagamento fatura *" é o transfer pair criado pelo botão Pagar.
+    // Esse já tem o valor real do pagamento; NÃO inflar com itemized
+    // do mês (causaria double-count). Só lump-sums agendados ("<banco>
+    // cartão <mês>") devem ser inflados.
+    if (m.startsWith("pagamento fatura")) return base
     if (!m.includes("cartao")) return base
     for (const [bankKey, cardId] of cardsByBankKey) {
       if (!m.includes(bankKey)) continue

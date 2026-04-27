@@ -122,11 +122,13 @@ export async function payInvoiceAction(
   // redundantes assim que o pagamento real é registrado.
   const { data: card } = await untyped(supabase)
     .from("accounts")
-    .select("name")
+    .select("name, closing_day")
     .eq("id", parsed.cardId)
     .eq("user_id", user.id)
     .maybeSingle()
-  const cardName = (card as { name?: string } | null)?.name ?? ""
+  const cardRow = card as { name?: string; closing_day?: number | null } | null
+  const cardName = cardRow?.name ?? ""
+  const closingDay = cardRow?.closing_day ?? 20
   const bankKey = bankKeyFromCardName(cardName)
   const invoiceMonth = parseInvoiceMonth(parsed.invoiceLabel)
 
@@ -162,6 +164,51 @@ export async function payInvoiceAction(
     }
   }
 
+  // Marca como pagos todos os charges itemized da fatura (mesmo cartão,
+  // mesmo bucket de mês via closing_day, paid_at=null). Quando a
+  // fatura é paga, todas as compras dentro dela passam pra status pago.
+  let markedChargeIds: string[] = []
+  if (invoiceMonth) {
+    const monthIdx = MONTHS_PT_LOWER.indexOf(invoiceMonth.monthName)
+    if (monthIdx >= 0) {
+      const invoiceYM = `${invoiceMonth.year}-${String(monthIdx + 1).padStart(2, "0")}`
+      const { data: charges } = await untyped(supabase)
+        .from("transactions")
+        .select("id, occurred_on")
+        .eq("user_id", user.id)
+        .eq("account_id", parsed.cardId)
+        .eq("type", "expense")
+        .eq("is_transfer", false)
+        .is("paid_at", null)
+      const matching = ((charges as Array<{ id: string; occurred_on: string }>) ?? [])
+        .filter((t) => {
+          const day = Number(t.occurred_on.slice(8, 10))
+          const occYM = t.occurred_on.slice(0, 7)
+          if (day <= closingDay) return occYM === invoiceYM
+          const [y, m] = occYM.split("-").map(Number)
+          const total = y! * 12 + (m! - 1) + 1
+          const ny = Math.floor(total / 12)
+          const nm = (total % 12) + 1
+          const nextYM = `${ny}-${String(nm).padStart(2, "0")}`
+          return nextYM === invoiceYM
+        })
+        .map((t) => t.id)
+      if (matching.length > 0) {
+        const { error: updErr } = await untyped(supabase)
+          .from("transactions")
+          .update({ paid_at: nowIso })
+          .in("id", matching)
+          .eq("user_id", user.id)
+        if (updErr) throw new Error(`Falha ao marcar charges: ${updErr.message}`)
+        markedChargeIds = matching
+      }
+    }
+  }
+
+  // Expense na conta corrente é saída REAL do dinheiro — entra em
+  // KPIs de saída. is_transfer=false. (A semântica do app diz que
+  // gastos no cartão só "saem da vida" do user quando a fatura é
+  // paga; é AGORA que conta como saída.)
   const { error: expErr } = await untyped(supabase)
     .from("transactions")
     .insert({
@@ -174,11 +221,13 @@ export async function payInvoiceAction(
       merchant,
       note: `Pagamento da fatura ${parsed.invoiceLabel}`,
       source: "manual",
-      is_transfer: true,
+      is_transfer: false,
       paid_at: nowIso,
     })
   if (expErr) throw new Error(expErr.message)
 
+  // Income no cartão é apenas offset de dívida — não é renda real.
+  // is_transfer=true mantém fora dos KPIs de entrada e do DRE.
   const { error: incErr } = await untyped(supabase)
     .from("transactions")
     .insert({
@@ -199,5 +248,5 @@ export async function payInvoiceAction(
   revalidatePath("/app/cartoes")
   revalidatePath("/app")
   revalidatePath("/app/contas")
-  return { ok: true, deletedScheduledIds }
+  return { ok: true, deletedScheduledIds, markedChargeIds }
 }
