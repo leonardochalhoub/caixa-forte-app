@@ -1,38 +1,15 @@
 import Link from "next/link"
-import { redirect } from "next/navigation"
 import { Footer } from "@/components/footer"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { getUser } from "@/lib/auth"
-import { createServerClient } from "@/lib/supabase/server"
-import { untyped } from "@/lib/supabase/untyped"
 
-// Layout sensível à sessão: precisa renderizar a cada request pra não
-// servir HTML cacheado de uma sessão anterior (ex: usuário acabou de
-// entrar como demo da Larissa, clica /login e o layout precisa ler o
-// cookie atualizado pra decidir se mostra form ou redireciona).
+// /login, /signup, /esqueci-senha, /redefinir-senha NUNCA redirecionam
+// usuários já logados. O login form sobrescreve cookies. Quem quer
+// voltar pra app clica no botão dentro do form (componente faz isso
+// quando detecta sessão ativa).
 export const dynamic = "force-dynamic"
 export const revalidate = 0
 
-export default async function AuthLayout({ children }: { children: React.ReactNode }) {
-  const user = await getUser()
-  if (user) {
-    const supabase = await createServerClient()
-    const { data: profile } = await untyped(supabase)
-      .from("profiles")
-      .select("onboarded_at, is_demo")
-      .eq("user_id", user.id)
-      .maybeSingle()
-    const typedProfile = profile as
-      | { onboarded_at?: string | null; is_demo?: boolean | null }
-      | null
-    // Se o usuário logado é demo (Larissa), NÃO redireciona pra /app.
-    // Mostra o form de login pra permitir o usuário real autenticar
-    // com as próprias credenciais (sobrescreve os cookies da demo).
-    if (!typedProfile?.is_demo) {
-      redirect(typedProfile?.onboarded_at ? "/app" : "/onboarding")
-    }
-  }
-
+export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
