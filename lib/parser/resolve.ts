@@ -47,16 +47,39 @@ export function resolveCategoryId(
   return childMatch?.id ?? parentMatch.id
 }
 
-// Returns null when the user didn't name an account (or the name doesn't
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Returns null when the user didn't name an account (or the hint doesn't
 // match any). Callers must handle null by parking the capture in review —
 // we never silently dump unresolved rows into a default/last-used account,
 // because that quietly corrupts the wrong balance.
+//
+// O prompt instrui o LLM a retornar o UUID (entre colchetes na lista de
+// contas). Se vier UUID válido, match direto por id. Senão, cai pro
+// fuzzy match bidirecional como fallback (proteção contra LLM que ignora
+// instrução). Fuzzy match exige needle ≥ 4 chars pra evitar one-word
+// false positives (ex: "caixa" matchando "Caixa Federal Cartão" quando
+// usuário disse "mercado pago").
 export function resolveAccountId(
   hint: string | null,
   accounts: AccountRow[],
 ): string | null {
   if (!hint) return null
-  const needle = normalize(hint)
-  const match = accounts.find((a) => normalize(a.name).includes(needle))
+  const trimmed = hint.trim()
+
+  // Caminho 1: hint é UUID direto (formato esperado após prompt v2)
+  if (UUID_RE.test(trimmed)) {
+    const byId = accounts.find((a) => a.id.toLowerCase() === trimmed.toLowerCase())
+    return byId?.id ?? null
+  }
+
+  // Caminho 2: fallback fuzzy. Bidirecional: needle ⊂ name OU name ⊂ needle.
+  const needle = normalize(trimmed)
+  if (needle.length < 4) return null // 1-3 chars matcha qualquer coisa
+  const match = accounts.find((a) => {
+    const n = normalize(a.name)
+    return n.includes(needle) || needle.includes(n)
+  })
   return match?.id ?? null
 }
