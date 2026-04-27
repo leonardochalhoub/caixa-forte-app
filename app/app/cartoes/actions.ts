@@ -100,3 +100,37 @@ export async function payInvoiceAction(
       ?.marked_charge_ids ?? [],
   }
 }
+
+const VoidInvoicePaymentSchema = z.object({
+  txId: z.string().uuid(),
+})
+
+// Desfaz pagamento de fatura via RPC void_transfer (mig 0043).
+// Apaga ambos os lados do par transfer (expense na corrente +
+// income no cartão) numa única transação. Cobre o caso "paguei
+// errado, queria desfazer". Os charges originais que foram
+// marcados como pagos pelo pay_invoice ficam paid_at=now() —
+// se quiser revertê-los também, é manual (não desfaz aqui pra
+// evitar destrutividade ambígua). Mas o saldo do cartão volta
+// pra mostrar dívida pendente.
+export async function voidInvoicePaymentAction(
+  input: z.infer<typeof VoidInvoicePaymentSchema>,
+) {
+  await requireUser()
+  const parsed = VoidInvoicePaymentSchema.parse(input)
+  const supabase = await createServerClient()
+
+  const { data, error } = await untyped(supabase).rpc("void_transfer", {
+    p_tx_id: parsed.txId,
+  })
+  if (error) throw new Error(`Falha ao desfazer pagamento: ${error.message}`)
+
+  revalidatePath("/app/cartoes")
+  revalidatePath("/app")
+  revalidatePath("/app/contas")
+  return {
+    ok: true,
+    deletedIds: (data as { deleted_ids?: string[] })?.deleted_ids ?? [],
+    orphan: (data as { orphan?: boolean })?.orphan ?? false,
+  }
+}

@@ -12,6 +12,7 @@ import { formatPtBrDateShort } from "@/lib/time"
 import { CardsManager } from "./_components/CardsManager"
 import { ClosingDayEditor } from "./_components/ClosingDayEditor"
 import { PayInvoiceButton } from "./_components/PayInvoiceButton"
+import { VoidInvoicePaymentButton } from "./_components/VoidInvoicePaymentButton"
 import { MONTH_NAMES_PT } from "@/lib/time"
 import {
   bankKeyOfCard,
@@ -74,6 +75,7 @@ export default async function CartoesPage() {
     merchant: string | null
     paid_at: string | null
     isLumpSum: boolean
+    isInvoicePayment?: boolean
     accountName: string
   }
 
@@ -176,6 +178,20 @@ export default async function CartoesPage() {
       const key = merchantInvoiceMonth(t.merchant, t.occurred_on)
       const b = ensure(key)
       b.transferPaidCents += Number(t.amount_cents)
+      // Adiciona o transfer payment como entry visível na fatura
+      // (badge "pagamento" + botão void). isLumpSum=false pra UI
+      // distinguir de lump-sum agendado; isInvoicePayment=true ativa
+      // o botão Undo.
+      b.lumpSumEntries.push({
+        id: t.id,
+        amount_cents: Number(t.amount_cents),
+        occurred_on: t.occurred_on,
+        merchant: t.merchant,
+        paid_at: t.paid_at,
+        isLumpSum: false,
+        isInvoicePayment: true,
+        accountName: card.name,
+      })
     }
 
     const invoices = [...byMonth.entries()]
@@ -321,6 +337,7 @@ function InvoiceRow({
       merchant: string | null
       paid_at: string | null
       isLumpSum: boolean
+      isInvoicePayment?: boolean
       accountName: string
     }[]
     lumpSumEntries: {
@@ -330,6 +347,7 @@ function InvoiceRow({
       merchant: string | null
       paid_at: string | null
       isLumpSum: boolean
+      isInvoicePayment?: boolean
       accountName: string
     }[]
   }
@@ -431,6 +449,11 @@ function InvoiceRow({
                     fatura
                   </span>
                 )}
+                {t.isInvoicePayment && (
+                  <span className="shrink-0 rounded-full border border-income/40 bg-income/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-income">
+                    pagamento
+                  </span>
+                )}
                 {t.paid_at ? (
                   <span className="shrink-0 rounded-full border border-income/40 bg-income/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-income">
                     paga
@@ -441,9 +464,20 @@ function InvoiceRow({
                   </span>
                 )}
               </Link>
-              <span className="shrink-0 font-mono text-expense tabular-nums">
-                − {formatBRL(t.amount_cents)}
+              <span
+                className={`shrink-0 font-mono tabular-nums ${
+                  t.isInvoicePayment ? "text-income" : "text-expense"
+                }`}
+              >
+                {t.isInvoicePayment ? "+" : "−"} {formatBRL(t.amount_cents)}
               </span>
+              {t.isInvoicePayment && (
+                <VoidInvoicePaymentButton
+                  txId={t.id}
+                  amountCents={t.amount_cents}
+                  invoiceLabel={invoice.label}
+                />
+              )}
             </li>
           ))}
         </ul>
