@@ -80,7 +80,16 @@ export async function updateTransactionAction(input: z.infer<typeof UpdateTransa
   // Only touch paid_at when the caller explicitly passes `paid`. That way
   // renaming a merchant on an already-paid tx doesn't accidentally unset
   // or reset the paid_at timestamp.
-  const update: Record<string, unknown> = {
+  const update: {
+    account_id: string
+    category_id: string | null
+    type: "income" | "expense"
+    amount_cents: number
+    occurred_on: string
+    merchant: string | null
+    note: string | null
+    paid_at?: string | null
+  } = {
     account_id: parsed.accountId,
     category_id: parsed.categoryId,
     type: parsed.type,
