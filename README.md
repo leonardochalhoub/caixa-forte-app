@@ -4,6 +4,10 @@
 
 ### É preto no branco!
 
+> **v0.5.0 · VALIDAÇÃO INICIAL** &nbsp;·&nbsp; *"Saiu do beta, entrou em validação inicial — agora é distribuição, não construção."*
+>
+> &nbsp; — Veredicto do Conselho v5 (10 conselheiros · projeto **9.0/10** · app **9.2/10**)
+
 **Controle financeiro pessoal para brasileiros que querem clareza sobre o próprio dinheiro — sem planilha, sem atrito, sem assinatura.**
 
 &nbsp;
@@ -28,11 +32,27 @@
 ![LGPD](https://img.shields.io/badge/LGPD-ready-000)
 
 [![CI](https://github.com/leonardochalhoub/caixa-forte-app/actions/workflows/ci.yml/badge.svg)](https://github.com/leonardochalhoub/caixa-forte-app/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.5.0-000?style=flat)
 ![Tests](https://img.shields.io/badge/tests-90%20passing-22c55e?style=flat)
 ![Migrations](https://img.shields.io/badge/migrations-54%20applied-3ECF8E?style=flat)
 ![ADRs](https://img.shields.io/badge/ADRs-6-000?style=flat)
+![Council](https://img.shields.io/badge/conselho_v5-9.0%2F10-22c55e?style=flat)
 
 </div>
+
+---
+
+## 📊 Status do projeto
+
+| Versão | Marco | Conselho | Score | Veredicto |
+|---|---|---|---|---|
+| `v0.3.0` | M1.5 — sysadmin, IBGE, paid_at, docs | v1 | 7.0 / 7.5 | "MVP shipado em produção, entrando em early beta solo" |
+| `v0.3.0+` | + idempotência, snapshots, refactors god-files | v2 | 7.0 / 7.5 | "Beta endurecido com fundação confiável" |
+| `v0.4.0` | + UI snapshots, design fixes, ADRs | v3 | 8.0 / 8.5 | "Beta maduro com fundação robusta" |
+| `v0.4.0+` | + 5 god-files refatorados, vitest v3 | v4 | 8.5 / 9.0 | "Produto vivo com primeiro sinal de tração" |
+| **`v0.5.0`** | **+ lint flat config, ARIA, fuzzy, lazy charts, observabilidade** | **v5** | **9.0 / 9.2** | **"Saiu do beta, entrou em validação inicial — agora é distribuição, não construção"** |
+
+**O Conselho** é um painel de 10 avaliadores (4 mirante: Finanças, Administrador, Design, Eng Software · 6 spec: codebase-explorer, supabase-specialist, schema-designer, genai-architect, the-planner, vercel-perf) que reavaliam o projeto a cada sprint sob lentes distintas. As notas e os pareceres ficam em [`docs/adr/`](docs/adr/) e nos commits.
 
 ---
 
