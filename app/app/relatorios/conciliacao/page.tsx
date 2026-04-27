@@ -5,42 +5,30 @@ import { ArrowDown, ArrowUp, ArrowLeftRight, TrendingDown, TrendingUp } from "lu
 import { requireOnboardedUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { formatBRL } from "@/lib/money"
-import { formatInSaoPaulo, formatPtBrDateShort, MONTH_NAMES_PT, monthBounds } from "@/lib/time"
+import { formatInSaoPaulo, formatPtBrDateShort, monthBounds } from "@/lib/time"
+import {
+  fetchConciliacaoData,
+  parsePendingCaptures,
+} from "@/lib/reports/conciliacao-queries"
+import {
+  buildAccountRows,
+  buildAvailableMonths,
+  buildXlsxRows,
+  computeExpenseSplit,
+  computePendingTotals,
+  filterEffectiveTxs,
+  filterTxsByKnownAccounts,
+  getCreditAccountIds,
+  makePeriodPredicates,
+  resolveDisplayName,
+  splitFgtsAndSort,
+  sumAccountsTotal,
+} from "@/lib/reports/conciliacao-helpers"
+import type { Tx, SearchParams } from "@/lib/reports/conciliacao-types"
 import { PrintActions } from "./_components/PrintActions"
 import { PeriodSelector } from "./_components/PeriodSelector"
-
-type Tx = {
-  id: string
-  account_id: string
-  type: "income" | "expense"
-  amount_cents: number
-  occurred_on: string
-  paid_at: string | null
-  created_at: string
-  merchant: string | null
-  is_transfer: boolean | null
-  category_id: string | null
-}
-
-type AccountRow = {
-  id: string
-  name: string
-  type: string
-  opening_balance_cents: number | null
-  created_at: string
-}
-
-type PendingParsed = {
-  id: string
-  amount_cents: number
-  type: "income" | "expense"
-  occurred_on: string
-  merchant: string | null
-}
-
-interface SearchParams {
-  periodo?: string
-}
+import { AccountDetailSection } from "./_components/AccountDetailSection"
+import { PendingSection } from "./_components/PendingSection"
 
 export default async function ConciliacaoPage({
   searchParams,
@@ -56,88 +44,22 @@ export default async function ConciliacaoPage({
   const periodo = sp.periodo ?? defaultYm
   const isFullHistory = periodo === "tudo"
 
-  const [
-    { data: accounts },
-    { data: allTxRaw },
-    { data: pendingRaw },
-    { data: profileRaw },
-  ] = await Promise.all([
-    supabase
-      .from("accounts")
-      .select("id, name, type, opening_balance_cents, created_at")
-      .eq("user_id", user.id)
-      .is("archived_at", null)
-      .order("sort_order"),
-    // Fetch TODAS as tx (paid e unpaid). Filtro por account type acontece
-    // depois: não-cartão só conta paid; cartão conta tudo (debt).
-    supabase
-      .from("transactions")
-      .select(
-        "id, account_id, type, amount_cents, occurred_on, paid_at, created_at, merchant, is_transfer, category_id",
-      )
-      .eq("user_id", user.id)
-      .order("occurred_on", { ascending: true })
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("capture_messages")
-      .select("id, groq_parse_json")
-      .eq("user_id", user.id)
-      .eq("error", "no_account")
-      .is("transaction_id", null),
-    supabase
-      .from("profiles")
-      .select("display_name")
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ])
+  const { accounts, allTxRaw, pendingRaw, profileRaw } =
+    await fetchConciliacaoData(supabase, user.id)
 
-  const accs = (accounts ?? []) as AccountRow[]
-  const creditAccountIds = new Set(
-    accs.filter((a) => a.type === "credit").map((a) => a.id),
-  )
-  const rawTxs = ((allTxRaw ?? []) as Tx[]).filter((t) =>
-    accs.some((a) => a.id === t.account_id),
-  )
-  // Regra: não-cartão só conta tx com paid_at setado (dinheiro que
-  // realmente mexeu no saldo). Cartão conta tudo, charges são dívida
-  // desde o swipe — saldo de cartão já inclui pending.
-  const allTx = rawTxs.filter(
-    (t) => creditAccountIds.has(t.account_id) || t.paid_at != null,
-  )
+  const accs = accounts
+  const creditAccountIds = getCreditAccountIds(accs)
+  const rawTxs = filterTxsByKnownAccounts(allTxRaw, accs)
+  const allTx = filterEffectiveTxs(rawTxs, creditAccountIds)
+  const pendingCaptures = parsePendingCaptures(pendingRaw)
 
-  const pendingCaptures: PendingParsed[] = (pendingRaw ?? [])
-    .map((c) => {
-      const p = (c as { groq_parse_json: unknown }).groq_parse_json as {
-        amount_cents?: number
-        type?: "income" | "expense"
-        occurred_on?: string
-        merchant?: string | null
-      } | null
-      if (
-        !p ||
-        typeof p.amount_cents !== "number" ||
-        (p.type !== "income" && p.type !== "expense") ||
-        typeof p.occurred_on !== "string"
-      ) {
-        return null
-      }
-      return {
-        id: (c as { id: string }).id,
-        amount_cents: p.amount_cents,
-        type: p.type,
-        occurred_on: p.occurred_on,
-        merchant: p.merchant ?? null,
-      }
-    })
-    .filter((x): x is PendingParsed => x !== null)
-
-  const displayName =
-    (profileRaw as { display_name?: string | null } | null)?.display_name ??
-    (user.user_metadata as { display_name?: string; full_name?: string } | null)
-      ?.display_name ??
-    (user.user_metadata as { full_name?: string } | null)?.full_name ??
-    user.email ??
-    ""
+  const displayName = resolveDisplayName(
+    profileRaw,
+    user.user_metadata as
+      | { display_name?: string; full_name?: string }
+      | null,
+    user.email,
+  )
 
   let periodStart: string | null = null
   let periodEnd: string | null = null
@@ -149,148 +71,32 @@ export default async function ConciliacaoPage({
     periodLabel = b.label
   }
 
-  const inPeriod = (t: Tx) => {
-    if (isFullHistory) return true
-    return t.occurred_on >= periodStart! && t.occurred_on < periodEnd!
-  }
-  const beforePeriod = (t: Tx) => {
-    if (isFullHistory) return false
-    return t.occurred_on < periodStart!
-  }
-
-  const normalizeStr = (s: string) =>
-    s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase()
-  const bankKeyOf = (cardName: string): string => {
-    const cleaned = cardName.replace(/cart[ãa]o.*/i, "").trim()
-    return normalizeStr(cleaned.split(/\s+/)[0] ?? "")
-  }
-
-  // Detecta lump-sums de fatura de cartão em OUTRAS contas (merchant
-  // "<banco> cartão" agendado). Esses entram no detalhamento do
-  // cartão como "fatura a pagar" pra refletir a dívida real.
-  function detectLumpSumsForCard(card: AccountRow): Tx[] {
-    if (card.type !== "credit") return []
-    const key = bankKeyOf(card.name)
-    if (!key) return []
-    return rawTxs.filter((t) => {
-      if (t.account_id === card.id) return false
-      if (t.is_transfer) return false
-      if (t.type !== "expense") return false
-      if (t.paid_at) return false // já pago
-      const m = normalizeStr(t.merchant ?? "")
-      return m.includes("cartao") && m.includes(key)
-    })
-  }
-
-  const rows = accs.map((a) => {
-    const own = allTx.filter((t) => t.account_id === a.id)
-    const detectedLumpSums = detectLumpSumsForCard(a)
-    // Cartão: lump-sum (valor base original da fatura) + itemizados
-    // (compras novas que aumentam a dívida) são SOMADOS. Running
-    // balance na lista reflete isso naturalmente.
-    const mine = [...own, ...detectedLumpSums]
-    const opening = Number(a.opening_balance_cents ?? 0)
-    const before = mine.filter(beforePeriod)
-    const within = mine.filter(inPeriod)
-
-    const sumDelta = (txs: Tx[]) =>
-      txs.reduce(
-        (s, t) => s + (t.type === "income" ? t.amount_cents : -t.amount_cents),
-        0,
-      )
-
-    const startBalance = isFullHistory ? opening : opening + sumDelta(before)
-    const incomeCents = within
-      .filter((t) => t.type === "income" && !t.is_transfer)
-      .reduce((s, t) => s + t.amount_cents, 0)
-    const expenseCents = within
-      .filter((t) => t.type === "expense" && !t.is_transfer)
-      .reduce((s, t) => s + t.amount_cents, 0)
-    const transferInCents = within
-      .filter((t) => t.type === "income" && t.is_transfer)
-      .reduce((s, t) => s + t.amount_cents, 0)
-    const transferOutCents = within
-      .filter((t) => t.type === "expense" && t.is_transfer)
-      .reduce((s, t) => s + t.amount_cents, 0)
-    const endBalance =
-      startBalance + incomeCents - expenseCents + transferInCents - transferOutCents
-
-    return {
-      account: a,
-      opening,
-      startBalance,
-      incomeCents,
-      expenseCents,
-      transferInCents,
-      transferOutCents,
-      endBalance,
-      within,
-      before,
-    }
-  })
-
-  // Ordena contas pelo timestamp da última movimentação NO PERÍODO
-  // (descendente). Contas sem movimentação no período vão pro fim,
-  // ordenadas pelo nome. FGTS fica sempre por último.
-  const latestActivityKey = (r: (typeof rows)[number]): string => {
-    if (r.within.length === 0) return "0000-00-00T00:00:00Z"
-    const last = r.within[r.within.length - 1]!
-    return last.created_at || `${last.occurred_on}T00:00:00Z`
-  }
-  // Separa saídas "normais" das saídas de fatura de cartão
-  // (charges no cartão + lump-sum detectado) pra mostrar na prova
-  // matemática quanto veio do cartão vs. do resto.
-  const cardFatureCents = rows
-    .filter((r) => r.account.type === "credit")
-    .reduce((s, r) => s + r.expenseCents, 0)
-  const nonCardExpenseCents = rows
-    .filter((r) => r.account.type !== "credit" && r.account.type !== "fgts")
-    .reduce((s, r) => s + r.expenseCents, 0)
-
-  const nonFgts = rows
-    .filter((r) => r.account.type !== "fgts")
-    .sort((a, b) => {
-      const aHas = a.within.length > 0
-      const bHas = b.within.length > 0
-      if (aHas !== bHas) return aHas ? -1 : 1
-      if (!aHas) return a.account.name.localeCompare(b.account.name)
-      return latestActivityKey(b).localeCompare(latestActivityKey(a))
-    })
-  const fgts = rows.filter((r) => r.account.type === "fgts")
-  // Para os totais (Saldo total agora), excluímos contas de cartão —
-  // a dívida do cartão NÃO reduz o saldo das contas, só sai quando
-  // a fatura é paga (via tx real na conta corrente). Mesma regra do
-  // hero na home. Cartão aparece separadamente como informativo.
-  const nonFgtsNonCredit = nonFgts.filter(
-    (r) => r.account.type !== "credit",
+  const { inPeriod, beforePeriod } = makePeriodPredicates(
+    isFullHistory,
+    periodStart,
+    periodEnd,
   )
 
-  // Pendentes no período (sem conta atribuída) entram como bloco
-  // separado — afetam o saldo projetado mas não pertencem a nenhuma
-  // conta. Assim o saldo total do relatório reconcilia com o hero.
-  const pendingInPeriod = pendingCaptures.filter((p) => {
-    if (isFullHistory) return true
-    return p.occurred_on >= periodStart! && p.occurred_on < periodEnd!
+  const rows = buildAccountRows({
+    accs,
+    allTx,
+    rawTxs,
+    isFullHistory,
+    inPeriod,
+    beforePeriod,
   })
-  const pendingIncomeCents = pendingInPeriod
-    .filter((p) => p.type === "income")
-    .reduce((s, p) => s + p.amount_cents, 0)
-  const pendingExpenseCents = pendingInPeriod
-    .filter((p) => p.type === "expense")
-    .reduce((s, p) => s + p.amount_cents, 0)
-  const pendingNetCents = pendingIncomeCents - pendingExpenseCents
 
-  const sum = (arr: typeof rows, field: keyof (typeof rows)[number]) =>
-    arr.reduce((s, r) => s + (r[field] as number), 0)
+  const { cardFatureCents, nonCardExpenseCents } = computeExpenseSplit(rows)
+  const { nonFgts, fgts, nonFgtsNonCredit } = splitFgtsAndSort(rows)
 
-  const accountsTotal = {
-    startBalance: sum(nonFgtsNonCredit, "startBalance"),
-    incomeCents: sum(nonFgtsNonCredit, "incomeCents"),
-    expenseCents: sum(nonFgtsNonCredit, "expenseCents"),
-    transferInCents: sum(nonFgtsNonCredit, "transferInCents"),
-    transferOutCents: sum(nonFgtsNonCredit, "transferOutCents"),
-    endBalance: sum(nonFgtsNonCredit, "endBalance"),
-  }
+  const {
+    pendingInPeriod,
+    pendingIncomeCents,
+    pendingExpenseCents,
+    pendingNetCents,
+  } = computePendingTotals(pendingCaptures, isFullHistory, periodStart, periodEnd)
+
+  const accountsTotal = sumAccountsTotal(nonFgtsNonCredit)
 
   // Saldo projetado = saldo das contas + impacto das pendentes.
   // É o valor que aparece no card "Saldo total agora" do dashboard.
@@ -310,97 +116,20 @@ export default async function ConciliacaoPage({
     timeZone: "America/Sao_Paulo",
   })
 
-  // XLSX guarda números como números — Excel aplica formato monetário
-  // via "formato da célula" se o user quiser. Aqui entregamos reais (com
-  // 2 decimais) como Number, não strings.
-  const toReais = (cents: number) => Math.round(cents) / 100
-  const xlsxRows: (string | number)[][] = [
-    ["Conta", "Tipo", "Saldo inicial", "Entradas", "Saídas", "Transf. entrada", "Transf. saída", "Saldo final"],
-    ...nonFgts.map((r) => [
-      r.account.name,
-      r.account.type,
-      toReais(r.startBalance),
-      toReais(r.incomeCents),
-      toReais(r.expenseCents),
-      toReais(r.transferInCents),
-      toReais(r.transferOutCents),
-      toReais(r.endBalance),
-    ]),
-    ...fgts.map((r) => [
-      `${r.account.name} (não entra no saldo)`,
-      r.account.type,
-      toReais(r.startBalance),
-      toReais(r.incomeCents),
-      toReais(r.expenseCents),
-      toReais(r.transferInCents),
-      toReais(r.transferOutCents),
-      toReais(r.endBalance),
-    ]),
-  ]
-  if (pendingInPeriod.length > 0) {
-    xlsxRows.push([
-      "PENDENTES (sem conta atribuída)",
-      "pending",
-      0,
-      toReais(pendingIncomeCents),
-      toReais(pendingExpenseCents),
-      0,
-      0,
-      toReais(pendingNetCents),
-    ])
-  }
-  xlsxRows.push([
-    "TOTAL (ex-FGTS, com pendentes)",
-    "",
-    toReais(accountsTotal.startBalance),
-    toReais(totalIncomeCents),
-    toReais(totalExpenseCents),
-    toReais(accountsTotal.transferInCents),
-    toReais(accountsTotal.transferOutCents),
-    toReais(projectedEndBalance),
-  ])
-  xlsxRows.push([])
-  xlsxRows.push(["Detalhamento por conta"])
-  xlsxRows.push(["Conta", "Data", "Tipo", "Descrição", "Transferência?", "Valor", "Saldo corrente"])
-  for (const r of [...nonFgts, ...fgts]) {
-    let running = r.startBalance
-    xlsxRows.push([r.account.name, "—", "início", "Saldo inicial do período", "", "", toReais(running)])
-    for (const t of r.within) {
-      const delta = t.type === "income" ? t.amount_cents : -t.amount_cents
-      running += delta
-      xlsxRows.push([
-        r.account.name,
-        t.occurred_on,
-        t.type === "income" ? "entrada" : "saída",
-        t.merchant ?? "(sem descrição)",
-        t.is_transfer ? "sim" : "não",
-        toReais(delta),
-        toReais(running),
-      ])
-    }
-    xlsxRows.push([r.account.name, "—", "fim", "Saldo final do período", "", "", toReais(r.endBalance)])
-  }
+  const xlsxRows = buildXlsxRows({
+    nonFgts,
+    fgts,
+    pendingInPeriod,
+    pendingIncomeCents,
+    pendingExpenseCents,
+    pendingNetCents,
+    accountsTotal,
+    totalIncomeCents,
+    totalExpenseCents,
+    projectedEndBalance,
+  })
 
-  // Meses disponíveis no dropdown: só aqueles que tiveram atividade
-  // "real" — despesa, entrada formal ou pendente. Saldo inicial e
-  // transferências não aparecem sozinhos (mês sem movimento humano).
-  const monthsWithActivity = new Set<string>()
-  for (const t of allTx) {
-    if (t.is_transfer) continue
-    monthsWithActivity.add(t.occurred_on.slice(0, 7))
-  }
-  for (const p of pendingCaptures) monthsWithActivity.add(p.occurred_on.slice(0, 7))
-  // Garante que o mês atual apareça sempre, mesmo que vazio.
-  monthsWithActivity.add(defaultYm)
-  const availableMonths = [...monthsWithActivity]
-    .sort()
-    .reverse()
-    .map((ym) => {
-      const [yStr, mStr] = ym.split("-")
-      const y = Number(yStr)
-      const m = Number(mStr)
-      return { value: ym, label: `${MONTH_NAMES_PT[m - 1]} ${y}` }
-    })
+  const availableMonths = buildAvailableMonths(allTx, pendingCaptures, defaultYm)
 
   const fgtsEndBalance = fgts.reduce((s, r) => s + r.endBalance, 0)
 
@@ -738,203 +467,12 @@ export default async function ConciliacaoPage({
         </p>
       </section>
 
-      <section className="space-y-6">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-strong">
-          Detalhamento por conta
-        </h2>
-        {[...nonFgts, ...fgts].map((r) => {
-          let running = r.startBalance
-          return (
-            <div
-              key={r.account.id}
-              className="avoid-break space-y-2 rounded-xl border border-border p-4"
-            >
-              <div className="flex items-baseline justify-between">
-                <h3 className="font-medium text-strong">{r.account.name}</h3>
-                <p className="text-xs text-muted">
-                  Saldo inicial:{" "}
-                  <span className="font-mono text-strong">
-                    {formatBRL(r.startBalance)}
-                  </span>
-                </p>
-              </div>
-              {r.within.length === 0 ? (
-                <p className="text-xs italic text-muted">
-                  Sem movimentações no período.
-                </p>
-              ) : (
-                <table className="w-full text-xs">
-                  <colgroup>
-                    <col style={{ width: "14%" }} />
-                    <col style={{ width: "52%" }} />
-                    <col style={{ width: "17%" }} />
-                    <col style={{ width: "17%" }} />
-                  </colgroup>
-                  <thead className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
-                    <tr>
-                      <th className="py-1.5 text-left">Data</th>
-                      <th className="py-1.5 text-left">Descrição</th>
-                      <th className="py-1.5 text-right">Valor</th>
-                      <th className="py-1.5 text-right">Saldo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      // Pré-calcula running balance em ordem cronológica
-                      // asc, mas renderiza em ordem desc (mais recente em
-                      // cima) — cada linha mostra o saldo NAQUELE ponto
-                      // do tempo, preservando a conta correta.
-                      const withRunning = r.within.map((t) => {
-                        const delta =
-                          t.type === "income" ? t.amount_cents : -t.amount_cents
-                        running += delta
-                        return { t, delta, runningAt: running }
-                      })
-                      return withRunning.map(({ t, delta, runningAt }) => {
-                        const isIncome = delta >= 0
-                        const hhmm = t.created_at
-                          ? formatInSaoPaulo(new Date(t.created_at), "HH:mm")
-                          : ""
-                        return (
-                          <tr key={t.id} className="border-b border-border/50">
-                            <td className="py-1 text-body">
-                              <span className="whitespace-nowrap">
-                                {formatPtBrDateShort(t.occurred_on)}
-                                {hhmm && (
-                                  <span className="ml-1 text-[10px] text-muted">
-                                    · {hhmm}
-                                  </span>
-                                )}
-                              </span>
-                            </td>
-                            <td className="py-1 text-body">
-                              <span className="inline-flex items-center gap-1.5">
-                                {t.is_transfer ? (
-                                  <ArrowLeftRight className="h-3 w-3 text-muted" />
-                                ) : isIncome ? (
-                                  <ArrowUp className="h-3 w-3 text-income" />
-                                ) : (
-                                  <ArrowDown className="h-3 w-3 text-expense" />
-                                )}
-                                {t.merchant ?? "(sem descrição)"}
-                                {t.is_transfer && (
-                                  <span className="ml-1 text-[10px] uppercase tracking-wider text-muted">
-                                    transf.
-                                  </span>
-                                )}
-                              </span>
-                            </td>
-                            <td
-                              className={`py-1 text-right font-mono tabular-nums ${
-                                isIncome ? "text-income" : "text-expense"
-                              }`}
-                            >
-                              {isIncome ? "+" : "−"} {formatBRL(Math.abs(delta))}
-                            </td>
-                            <td className="py-1 text-right font-mono tabular-nums text-strong">
-                              {formatBRL(runningAt)}
-                            </td>
-                          </tr>
-                        )
-                      })
-                    })()}
-                    {(() => {
-                      const delta = r.endBalance - r.startBalance
-                      const color =
-                        delta > 0
-                          ? "text-income"
-                          : delta < 0
-                            ? "text-expense"
-                            : "text-strong"
-                      const Icon =
-                        delta > 0 ? TrendingUp : delta < 0 ? TrendingDown : null
-                      return (
-                        <tr className="bg-subtle">
-                          <td
-                            className="py-1.5 text-[10px] font-semibold uppercase tracking-wider text-strong"
-                            colSpan={3}
-                          >
-                            Saldo final
-                          </td>
-                          <td
-                            className={`py-1.5 text-right font-mono font-semibold tabular-nums ${color}`}
-                          >
-                            <span className="inline-flex items-center justify-end gap-1.5">
-                              {Icon && <Icon className="h-3.5 w-3.5" />}
-                              {formatBRL(r.endBalance)}
-                            </span>
-                          </td>
-                        </tr>
-                      )
-                    })()}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )
-        })}
-      </section>
+      <AccountDetailSection rows={[...nonFgts, ...fgts]} />
 
-      {pendingInPeriod.length > 0 && (
-        <section className="avoid-break space-y-3 rounded-xl border border-dashed border-border p-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-strong">
-            Pendentes no período
-          </h2>
-          <p className="text-xs text-muted">
-            Despesas capturadas sem conta atribuída. Já afetam o saldo total
-            projetado. Atribua uma conta em /app pra tirar daqui.
-          </p>
-          <table className="w-full text-xs">
-            <colgroup>
-              <col style={{ width: "14%" }} />
-              <col style={{ width: "66%" }} />
-              <col style={{ width: "20%" }} />
-            </colgroup>
-            <thead className="border-b border-border text-[10px] uppercase tracking-wider text-muted">
-              <tr>
-                <th className="py-1.5 text-left">Data</th>
-                <th className="py-1.5 text-left">Descrição</th>
-                <th className="py-1.5 text-right">Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pendingInPeriod.map((p) => (
-                <tr key={p.id} className="border-b border-border/50">
-                  <td className="py-1 text-body">
-                    {formatPtBrDateShort(p.occurred_on)}
-                  </td>
-                  <td className="py-1 text-body">
-                    {p.merchant ?? "(sem descrição)"}
-                  </td>
-                  <td
-                    className={`py-1 text-right font-mono tabular-nums ${
-                      p.type === "income" ? "text-income" : "text-expense"
-                    }`}
-                  >
-                    {p.type === "income" ? "+" : "−"}{" "}
-                    {formatBRL(p.amount_cents)}
-                  </td>
-                </tr>
-              ))}
-              <tr className="bg-subtle">
-                <td
-                  className="py-1.5 text-[10px] font-semibold uppercase tracking-wider text-strong"
-                  colSpan={2}
-                >
-                  Impacto no saldo
-                </td>
-                <td
-                  className={`py-1.5 text-right font-mono font-semibold tabular-nums ${
-                    pendingNetCents < 0 ? "text-expense" : "text-income"
-                  }`}
-                >
-                  {formatBRL(pendingNetCents)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-      )}
+      <PendingSection
+        pendingInPeriod={pendingInPeriod}
+        pendingNetCents={pendingNetCents}
+      />
 
       <footer className="border-t border-border pt-4 text-[10px] text-muted">
         Caixa Forte · relatório de conciliação · Valores em BRL ·
