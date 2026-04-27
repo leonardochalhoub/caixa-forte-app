@@ -7,82 +7,20 @@ import { createServerClient } from "@/lib/supabase/server"
 import { formatBRL } from "@/lib/money"
 import { PrintActions } from "../conciliacao/_components/PrintActions"
 import { DREPeriodSelector } from "./_components/DREPeriodSelector"
-
-const MONTH_NAMES_PT = [
-  "Janeiro",
-  "Fevereiro",
-  "Março",
-  "Abril",
-  "Maio",
-  "Junho",
-  "Julho",
-  "Agosto",
-  "Setembro",
-  "Outubro",
-  "Novembro",
-  "Dezembro",
-]
-
-type Tx = {
-  id: string
-  account_id: string
-  type: "income" | "expense"
-  amount_cents: number
-  occurred_on: string
-  paid_at: string | null
-  merchant: string | null
-  is_transfer: boolean | null
-  category_id: string | null
-}
-
-type CategoryRow = {
-  id: string
-  name: string
-  parent_id: string | null
-  is_income: boolean
-  is_formal_income: boolean | null
-}
-
-type AccountRow = {
-  id: string
-  name: string
-  type: string
-}
-
-interface SearchParams {
-  periodo?: string
-}
-
-function parsePeriod(p: string): {
-  kind: "mensal" | "anual"
-  label: string
-  start: string
-  end: string // exclusive
-} {
-  if (p.startsWith("anual:")) {
-    const y = Number(p.slice(6))
-    return {
-      kind: "anual",
-      label: `Ano ${y}`,
-      start: `${y}-01-01`,
-      end: `${y + 1}-01-01`,
-    }
-  }
-  const ym = p.startsWith("mensal:") ? p.slice(7) : p
-  const [yStr, mStr] = ym.split("-")
-  const y = Number(yStr)
-  const m = Number(mStr)
-  const start = `${y}-${String(m).padStart(2, "0")}-01`
-  const endMonth = m === 12 ? 1 : m + 1
-  const endYear = m === 12 ? y + 1 : y
-  const end = `${endYear}-${String(endMonth).padStart(2, "0")}-01`
-  return {
-    kind: "mensal",
-    label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
-    start,
-    end,
-  }
-}
+import {
+  buildAvailablePeriods,
+  buildDREXlsxRows,
+  buildExpenseGroups,
+  buildIncomeGroups,
+  computeTotals,
+  filterDREEffectiveTxs,
+  getCreditAccountIds,
+  getFormalIncomeIds,
+  parsePeriod,
+  resolveDisplayName,
+} from "@/lib/reports/dre-helpers"
+import { fetchAllOccurredOn, fetchDREData } from "@/lib/reports/dre-queries"
+import type { SearchParams } from "@/lib/reports/dre-types"
 
 export default async function DREPage({
   searchParams,
@@ -98,150 +36,27 @@ export default async function DREPage({
   const periodStr = sp.periodo ?? defaultPeriod
   const period = parsePeriod(periodStr)
 
-  const [{ data: accounts }, { data: txsRaw }, { data: catsRaw }, { data: profileRaw }] =
-    await Promise.all([
-      supabase
-        .from("accounts")
-        .select("id, name, type")
-        .eq("user_id", user.id)
-        .is("archived_at", null),
-      supabase
-        .from("transactions")
-        .select(
-          "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer, category_id",
-        )
-        .eq("user_id", user.id)
-        .gte("occurred_on", period.start)
-        .lt("occurred_on", period.end),
-      supabase
-        .from("categories")
-        .select("id, name, parent_id, is_income, is_formal_income")
-        .eq("user_id", user.id),
-      supabase
-        .from("profiles")
-        .select("display_name")
-        .eq("user_id", user.id)
-        .maybeSingle(),
-    ])
+  const { accounts: accs, txsRaw, catsRaw, profileRaw } = await fetchDREData(
+    supabase,
+    user.id,
+    period.start,
+    period.end,
+  )
 
-  const accs = (accounts ?? []) as AccountRow[]
-  // Exclui saldo-inicial artificial — não é receita nem despesa do
-  // período, é só ponto de partida de uma conta/investimento.
-  const isOpeningBalance = (m: string | null) => {
-    if (!m) return false
-    const n = m
-      .normalize("NFD")
-      .replace(/\p{Diacritic}/gu, "")
-      .toLowerCase()
-    return n.includes("saldo inicial") || n.includes("saldo-inicial")
-  }
-  // Exclui tx em cartão de crédito — charges no cartão não são "saída"
-  // real até a fatura ser paga (= reduz disponibilidade). Mesma regra
-  // do hero/Home pra DRE bater com o KPI de "Saída do mês".
-  const creditAccountIds = new Set(
-    (accounts ?? [])
-      .filter((a) => (a as { type?: string }).type === "credit")
-      .map((a) => a.id as string),
-  )
-  const txs = ((txsRaw ?? []) as Tx[])
-    .filter((t) => !t.is_transfer)
-    .filter((t) => !isOpeningBalance(t.merchant))
-    .filter((t) => !creditAccountIds.has(t.account_id))
-  const cats = (catsRaw ?? []) as CategoryRow[]
+  // Exclui saldo-inicial artificial e tx em cartão de crédito (mesma
+  // regra do hero/Home pra DRE bater com o KPI de "Saída do mês").
+  const creditAccountIds = getCreditAccountIds(accs)
+  const txs = filterDREEffectiveTxs(txsRaw, creditAccountIds)
+  const cats = catsRaw
   const catById = new Map(cats.map((c) => [c.id, c]))
-  const formalIncomeIds = new Set(
-    cats.filter((c) => c.is_formal_income === true).map((c) => c.id),
-  )
+  const formalIncomeIds = getFormalIncomeIds(cats)
 
   // Separa receitas e despesas
   const incomes = txs.filter((t) => t.type === "income")
   const expenses = txs.filter((t) => t.type === "expense")
 
-  // RECEITAS por categoria pai
-  type IncomeGroup = {
-    parentId: string
-    parentName: string
-    isFormal: boolean
-    totalCents: number
-    count: number
-    children: Map<string, { id: string; name: string; cents: number; count: number }>
-  }
-  const receitas = new Map<string, IncomeGroup>()
-  for (const t of incomes) {
-    const cat = t.category_id ? catById.get(t.category_id) : null
-    const parentId = cat?.parent_id ?? (cat ? cat.id : "__none__")
-    const parent = cat?.parent_id ? catById.get(cat.parent_id) : cat
-    const isFormal = Boolean(
-      (cat?.is_formal_income === true) ||
-        (parent && formalIncomeIds.has(parent.id)),
-    )
-    let g = receitas.get(parentId)
-    if (!g) {
-      g = {
-        parentId,
-        parentName: parent?.name ?? cat?.name ?? "Sem categoria",
-        isFormal,
-        totalCents: 0,
-        count: 0,
-        children: new Map(),
-      }
-      receitas.set(parentId, g)
-    }
-    const cents = Number(t.amount_cents)
-    g.totalCents += cents
-    g.count++
-    if (cat?.parent_id) {
-      const child = g.children.get(cat.id) ?? {
-        id: cat.id,
-        name: cat.name,
-        cents: 0,
-        count: 0,
-      }
-      child.cents += cents
-      child.count++
-      g.children.set(cat.id, child)
-    }
-  }
-
-  // DESPESAS por categoria pai (com sub)
-  type ExpenseGroup = {
-    parentId: string
-    parentName: string
-    totalCents: number
-    count: number
-    children: Map<string, { id: string; name: string; cents: number; count: number }>
-  }
-  const despesas = new Map<string, ExpenseGroup>()
-  for (const t of expenses) {
-    const cat = t.category_id ? catById.get(t.category_id) : null
-    const parentId = cat?.parent_id ?? (cat ? cat.id : "__none__")
-    const parent = cat?.parent_id ? catById.get(cat.parent_id) : cat
-    let g = despesas.get(parentId)
-    if (!g) {
-      g = {
-        parentId,
-        parentName: parent?.name ?? cat?.name ?? "Sem categoria",
-        totalCents: 0,
-        count: 0,
-        children: new Map(),
-      }
-      despesas.set(parentId, g)
-    }
-    const cents = Number(t.amount_cents)
-    g.totalCents += cents
-    g.count++
-    if (cat?.parent_id) {
-      const child = g.children.get(cat.id) ?? {
-        id: cat.id,
-        name: cat.name,
-        cents: 0,
-        count: 0,
-      }
-      child.cents += cents
-      child.count++
-      g.children.set(cat.id, child)
-    }
-  }
+  const receitas = buildIncomeGroups(incomes, catById, formalIncomeIds)
+  const despesas = buildExpenseGroups(expenses, catById)
 
   const receitasArr = [...receitas.values()].sort(
     (a, b) => b.totalCents - a.totalCents,
@@ -250,104 +65,28 @@ export default async function DREPage({
     (a, b) => b.totalCents - a.totalCents,
   )
 
-  const receitaTrabalho = receitasArr
-    .filter((r) => r.isFormal)
-    .reduce((s, r) => s + r.totalCents, 0)
-  const receitaCapital = receitasArr
-    .filter((r) => !r.isFormal)
-    .reduce((s, r) => s + r.totalCents, 0)
-
-  // Headline "Receita total" = só receita operacional (trabalho), mesma
-  // regra do hero/Home: capital (dividendos, cashback) é não-operacional
-  // e entra separado pra não poluir a margem operacional.
-  const receitaTotal = receitaTrabalho
-
-  const despesaTotal = despesasArr.reduce((s, d) => s + d.totalCents, 0)
-  const resultado = receitaTotal - despesaTotal
-  const margem = receitaTotal > 0 ? (resultado / receitaTotal) * 100 : 0
-  const resultadoLiquido = resultado + receitaCapital
+  const totals = computeTotals(receitasArr, despesasArr)
+  const { receitaTotal, despesaTotal, resultado, margem } = totals
 
   // Meses disponíveis
-  const activeMonths = new Set<string>()
-  const activeYears = new Set<number>()
-  const { data: allTxsForPeriods } = await supabase
-    .from("transactions")
-    .select("occurred_on")
-    .eq("user_id", user.id)
-  for (const t of (allTxsForPeriods ?? []) as { occurred_on: string }[]) {
-    activeMonths.add(t.occurred_on.slice(0, 7))
-    activeYears.add(Number(t.occurred_on.slice(0, 4)))
-  }
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-  activeMonths.add(currentYm)
-  activeYears.add(now.getFullYear())
+  const allOccurredOn = await fetchAllOccurredOn(supabase, user.id)
+  const { periodOptions, yearOptions } = buildAvailablePeriods(allOccurredOn, now)
 
-  const periodOptions = [...activeMonths]
-    .sort()
-    .reverse()
-    .map((ym) => {
-      const [yStr, mStr] = ym.split("-")
-      const y = Number(yStr)
-      const m = Number(mStr)
-      return {
-        value: `mensal:${ym}`,
-        label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
-      }
-    })
-  const yearOptions = [...activeYears]
-    .sort((a, b) => b - a)
-    .map((y) => ({ value: `anual:${y}`, label: `Ano ${y}` }))
-
-  const displayName =
-    (profileRaw as { display_name?: string | null } | null)?.display_name ??
-    (user.user_metadata as { display_name?: string; full_name?: string } | null)
-      ?.display_name ??
-    user.email ??
-    ""
+  const displayName = resolveDisplayName(
+    profileRaw,
+    user.user_metadata as { display_name?: string; full_name?: string } | null,
+    user.email,
+  )
   const generatedAt = new Date().toLocaleString("pt-BR", {
     timeZone: "America/Sao_Paulo",
   })
 
-  const xlsxRows: (string | number)[][] = [
-    ["DRE · " + period.label],
-    [],
-    ["RECEITAS"],
-    ["  Rendimentos do Trabalho", receitaTrabalho / 100],
-    ...receitasArr
-      .filter((r) => r.isFormal)
-      .flatMap((r) => [
-        [`    ${r.parentName}`, r.totalCents / 100, r.count],
-        ...[...r.children.values()].map((c) => [
-          `      ${c.name}`,
-          c.cents / 100,
-          c.count,
-        ]),
-      ]),
-    ["  Rendimentos de Capital e Outros", receitaCapital / 100],
-    ...receitasArr
-      .filter((r) => !r.isFormal)
-      .flatMap((r) => [
-        [`    ${r.parentName}`, r.totalCents / 100, r.count],
-        ...[...r.children.values()].map((c) => [
-          `      ${c.name}`,
-          c.cents / 100,
-          c.count,
-        ]),
-      ]),
-    ["TOTAL RECEITAS", receitaTotal / 100],
-    [],
-    ["DESPESAS"],
-    ...despesasArr.flatMap((d) => [
-      [`  ${d.parentName}`, d.totalCents / 100, d.count],
-      ...[...d.children.values()]
-        .sort((a, b) => b.cents - a.cents)
-        .map((c) => [`    ${c.name}`, c.cents / 100, c.count]),
-    ]),
-    ["TOTAL DESPESAS", despesaTotal / 100],
-    [],
-    ["RESULTADO DO PERÍODO", resultado / 100],
-    ["Margem (%)", Number(margem.toFixed(2))],
-  ]
+  const xlsxRows = buildDREXlsxRows({
+    period,
+    receitasArr,
+    despesasArr,
+    totals,
+  })
 
   return (
     <article className="report-root space-y-8">
@@ -544,19 +283,6 @@ function StatCard({
         {value}
       </p>
       <p className="text-[11px] text-muted">{sub}</p>
-    </div>
-  )
-}
-
-function SubTotal({ label, total }: { label: string; total: number }) {
-  return (
-    <div className="flex items-baseline justify-between border-b border-border pb-1">
-      <span className="text-xs font-semibold uppercase tracking-wider text-strong">
-        {label}
-      </span>
-      <span className="font-mono text-sm font-semibold tabular-nums text-strong">
-        {formatBRL(total)}
-      </span>
     </div>
   )
 }
