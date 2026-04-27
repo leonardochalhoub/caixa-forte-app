@@ -50,6 +50,7 @@ export default async function CartoesPage() {
     paid_at: string | null
     is_transfer: boolean | null
     tx_kind: "charge" | "invoice_payment" | "refund" | "fee" | "transfer" | null
+    category_id: string | null
   }
   // Busca TODAS as tx pra detectar tanto os charges itemizados (no
   // cartão) quanto o lump-sum de fatura (em outra conta). Lump-sum
@@ -58,11 +59,32 @@ export default async function CartoesPage() {
   const { data: txsRaw } = await supabase
     .from("transactions")
     .select(
-      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind",
+      "id, account_id, type, amount_cents, occurred_on, merchant, paid_at, is_transfer, tx_kind, category_id",
     )
     .eq("user_id", user.id)
     .order("occurred_on", { ascending: false })
   const allTxs = (txsRaw ?? []) as CardTx[]
+
+  // Categorias pra renderizar label "Categoria > Subcategoria" em cada
+  // charge na invoice — ajuda o user a ver de relance que categorias
+  // estão nas compras (e identificar charges sem categoria pra editar).
+  const { data: catsRaw } = await supabase
+    .from("categories")
+    .select("id, name, parent_id")
+    .eq("user_id", user.id)
+  const categoriesById = new Map(
+    (catsRaw ?? []).map((c) => [c.id, c]),
+  )
+  function categoryLabel(catId: string | null): string | null {
+    if (!catId) return null
+    const c = categoriesById.get(catId)
+    if (!c) return null
+    if (c.parent_id) {
+      const parent = categoriesById.get(c.parent_id)
+      return parent ? `${parent.name} · ${c.name}` : c.name
+    }
+    return c.name
+  }
   const allAccountsById = new Map(
     [...(cards ?? []), ...(checkingAccounts ?? [])].map((a) => [a.id, a]),
   )
@@ -76,6 +98,7 @@ export default async function CartoesPage() {
     isLumpSum: boolean
     isInvoicePayment?: boolean
     accountName: string
+    categoryLabel: string | null
   }
 
   const cardInvoices = (cards ?? []).map((card: {
@@ -156,6 +179,7 @@ export default async function CartoesPage() {
         paid_at: t.paid_at,
         isLumpSum: false,
         accountName: allAccountsById.get(t.account_id)?.name ?? "cartão",
+        categoryLabel: categoryLabel(t.category_id),
       })
     }
     for (const t of lumpSums) {
@@ -170,6 +194,7 @@ export default async function CartoesPage() {
         paid_at: t.paid_at,
         isLumpSum: true,
         accountName: allAccountsById.get(t.account_id)?.name ?? "conta",
+        categoryLabel: categoryLabel(t.category_id),
       })
       if (t.paid_at) b.paidCents += Number(t.amount_cents)
     }
@@ -190,6 +215,7 @@ export default async function CartoesPage() {
         isLumpSum: false,
         isInvoicePayment: true,
         accountName: card.name,
+        categoryLabel: null,
       })
     }
 
@@ -338,6 +364,7 @@ function InvoiceRow({
       isLumpSum: boolean
       isInvoicePayment?: boolean
       accountName: string
+      categoryLabel: string | null
     }[]
     lumpSumEntries: {
       id: string
@@ -348,6 +375,7 @@ function InvoiceRow({
       isLumpSum: boolean
       isInvoicePayment?: boolean
       accountName: string
+      categoryLabel: string | null
     }[]
   }
   cardId: string
@@ -440,6 +468,15 @@ function InvoiceRow({
                 <span className="truncate">
                   {t.merchant ?? "(sem merchant)"}
                 </span>
+                {t.categoryLabel ? (
+                  <span className="shrink-0 truncate rounded-full border border-border bg-subtle px-1.5 py-0.5 text-[9px] tracking-wide text-body">
+                    {t.categoryLabel}
+                  </span>
+                ) : !t.isInvoicePayment && (
+                  <span className="shrink-0 truncate rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    sem categoria
+                  </span>
+                )}
                 <span className="shrink-0 text-[10px] uppercase tracking-wider text-muted">
                   · {t.accountName}
                 </span>
