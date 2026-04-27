@@ -33,6 +33,7 @@ type Tx = {
   merchant: string | null
   is_transfer: boolean | null
   category_id: string | null
+  tx_kind: string | null
 }
 
 type CategoryRow = {
@@ -84,7 +85,7 @@ export default async function CategoriasPage({
       supabase
         .from("transactions")
         .select(
-          "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer, category_id",
+          "id, account_id, type, amount_cents, occurred_on, paid_at, merchant, is_transfer, category_id, tx_kind",
         )
         .eq("user_id", user.id),
       supabase
@@ -121,19 +122,27 @@ export default async function CategoriasPage({
     return t.occurred_on >= periodStart! && t.occurred_on < periodEnd!
   }
 
+  // INCLUI charges em cartão de crédito — semanticamente são gastos
+  // do user (a categoria/subcategoria descreve o que foi comprado).
+  // Apenas exclui transferências e tx 'invoice_payment' (que são
+  // pagamento da fatura, não gasto novo).
   const txs = ((txsRaw ?? []) as Tx[])
-    .filter((t) => !creditAccountIds.has(t.account_id))
     .filter((t) => !t.is_transfer)
+    .filter((t) => t.tx_kind !== "invoice_payment")
     .filter((t) => t.type === "expense")
     .filter(inPeriod)
 
-  // Agrupa por categoria (subcategoria some no parent)
+  // Agrupa por categoria (subcategoria some no parent).
+  // Tx sem categoria (category_id=null) cai num bucket especial
+  // "__none__" — destacado no relatório como "precisa categorizar"
+  // pra o user editar e melhorar a precisão dos relatórios.
   type CatAgg = {
     parentId: string
     parentName: string
     totalCents: number
     count: number
     children: Map<string, { id: string; name: string; cents: number; count: number }>
+    txIds: string[] // só usado pro bucket "sem categoria" (link pra editar)
   }
   const byParent = new Map<string, CatAgg>()
 
@@ -152,12 +161,16 @@ export default async function CategoriasPage({
         totalCents: 0,
         count: 0,
         children: new Map(),
+        txIds: [],
       }
       byParent.set(parentId, agg)
     }
     const cents = Number(t.amount_cents)
     agg.totalCents += cents
     agg.count++
+    if (parentId === "__none__") {
+      agg.txIds.push(t.id)
+    }
 
     // Se a tx era subcategoria, registra dentro
     if (cat?.parent_id) {
@@ -173,7 +186,12 @@ export default async function CategoriasPage({
     }
   }
 
-  const categorias = [...byParent.values()].sort((a, b) => b.totalCents - a.totalCents)
+  // Separa "sem categoria" do ranking — vira sua própria seção
+  // destacada (ajuda a melhorar precisão do relatório).
+  const semCategoria = byParent.get("__none__") ?? null
+  const categorias = [...byParent.values()]
+    .filter((c) => c.parentId !== "__none__")
+    .sort((a, b) => b.totalCents - a.totalCents)
   const grandTotal = categorias.reduce((s, c) => s + c.totalCents, 0)
   const maxBar = categorias[0]?.totalCents ?? 0
 
@@ -263,6 +281,48 @@ export default async function CategoriasPage({
         </p>
       </header>
 
+      {semCategoria && semCategoria.count > 0 && (
+        <section className="no-print rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                ⚠ {semCategoria.count} lançamento{semCategoria.count === 1 ? "" : "s"} sem categoria
+              </h2>
+              <p className="text-xs text-muted">
+                Categorize pra melhorar precisão dos relatórios. Total fora da
+                análise abaixo:{" "}
+                <span className="font-mono font-semibold tabular-nums text-strong">
+                  {formatBRL(semCategoria.totalCents)}
+                </span>
+              </p>
+            </div>
+          </div>
+          <ul className="space-y-1 text-xs">
+            {semCategoria.txIds.slice(0, 10).map((id) => (
+              <li key={id} className="flex items-center justify-between gap-3">
+                <a
+                  href={`/app/transacoes/${id}`}
+                  className="truncate text-body underline-offset-4 hover:text-strong hover:underline"
+                >
+                  Editar transação →
+                </a>
+              </li>
+            ))}
+            {semCategoria.txIds.length > 10 && (
+              <li className="pt-1 text-[11px] text-muted">
+                + {semCategoria.txIds.length - 10} outras —{" "}
+                <a
+                  href="/app/transacoes"
+                  className="underline-offset-4 hover:text-strong hover:underline"
+                >
+                  ver todas
+                </a>
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
+
       {categorias.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted">
           Sem gastos registrados no período.
@@ -342,7 +402,8 @@ export default async function CategoriasPage({
 
       <footer className="border-t border-border pt-4 text-[10px] text-muted">
         Caixa Forte · gastos por categoria · Valores em BRL · Inclui despesas
-        pagas e agendadas; exclui cartão de crédito e transferências.
+        pagas, agendadas E charges em cartão de crédito (categoria descreve o
+        que foi comprado). Exclui transferências e pagamentos de fatura.
       </footer>
     </article>
   )
