@@ -1,31 +1,23 @@
 // Helpers e tipos do Balanço Contábil. Antes viviam inline no
 // relatorios/balanco/page.tsx (1255L). Movidos pra cá pra reduzir
-// god-file e permitir reuso/teste.
+// god-file e permitir reuso/teste. Tipos foram migrados pra
+// `balanco-types.ts` e re-exportados aqui pra manter compat de imports.
 
 import { MONTH_NAMES_PT } from "@/lib/time"
 
-export type Tx = {
-  id: string
-  account_id: string
-  type: "income" | "expense"
-  amount_cents: number
-  occurred_on: string
-  paid_at: string | null
-  merchant: string | null
-  is_transfer: boolean | null
-}
-
-export type AccountRow = {
-  id: string
-  name: string
-  type: string
-  opening_balance_cents: number | null
-  balance_classification?: "circulante" | "nao_circulante" | null
-}
-
-export interface SearchParams {
-  periodo?: string
-}
+export {
+  TYPE_CLASSIFICATION,
+  SECTION_LABELS,
+  type AccountRow,
+  type AdjRow,
+  type Bucket,
+  type ClassificationKey,
+  type Line,
+  type OverdueLine,
+  type RegistryRow,
+  type SearchParams,
+  type Tx,
+} from "./balanco-types"
 
 // "mensal:2026-04" | "anual:2026"
 // snapshotDate é o MIN entre (último dia do período) e (hoje) — se
@@ -66,31 +58,4 @@ export function parsePeriod(p: string): {
     snapshotDate,
     label: `${MONTH_NAMES_PT[m - 1]} ${y}`,
   }
-}
-
-export const TYPE_CLASSIFICATION = {
-  checking: "ativo_circulante_disponivel",
-  cash: "ativo_circulante_disponivel",
-  wallet: "ativo_circulante_disponivel",
-  // Todas aplicações financeiras (renda fixa, renda variável, cripto)
-  // entram em Ativo Circulante. Pra pessoa física no BR, essas são
-  // líquidas o suficiente: poupança/CDB D+0, ações D+2, cripto 24/7.
-  savings: "ativo_circulante_renda_fixa",
-  poupanca: "ativo_circulante_renda_fixa",
-  investment: "ativo_circulante_renda_variavel",
-  crypto: "ativo_circulante_cripto",
-  fgts: "ativo_nc_bloqueado",
-  credit: "passivo_circulante_cartoes",
-} as const
-
-export type ClassificationKey =
-  (typeof TYPE_CLASSIFICATION)[keyof typeof TYPE_CLASSIFICATION]
-
-export const SECTION_LABELS: Record<ClassificationKey, string> = {
-  ativo_circulante_disponivel: "Disponibilidades",
-  ativo_circulante_renda_fixa: "Renda Fixa",
-  ativo_circulante_renda_variavel: "Renda Variável",
-  ativo_circulante_cripto: "Cripto",
-  ativo_nc_bloqueado: "Bloqueado (FGTS)",
-  passivo_circulante_cartoes: "Cartões de Crédito",
 }
