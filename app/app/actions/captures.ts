@@ -5,7 +5,12 @@ import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
 import { resolveCategoryId } from "@/lib/parser/resolve"
-import { captureText, captureAudio } from "@/lib/capture/pipeline"
+import {
+  captureText,
+  captureAudio,
+  channelToSource,
+  type CaptureChannel,
+} from "@/lib/capture/pipeline"
 import {
   ResolvePendingSchema,
   TextCaptureInput,
@@ -125,7 +130,9 @@ export async function resolvePendingCaptureAction(
       occurred_on: effectiveOccurredOn,
       merchant: p.merchant,
       note: p.note,
-      source: cap.channel,
+      // Normaliza canal pro CHECK constraint transactions_source_check
+      // (mig 0058). cap.channel pode ser 'web_text' que vira 'web'.
+      source: channelToSource(cap.channel as CaptureChannel),
       raw_input: cap.raw_input,
       groq_parse_json: p,
       paid_at: paidAt,

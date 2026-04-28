@@ -35,7 +35,14 @@ export interface CaptureResult {
 
 type Client = SupabaseClient<Database>
 
-function channelToSource(c: CaptureChannel): string {
+// Normaliza CaptureChannel pro valor exato exigido pelo CHECK
+// constraint transactions_source_check (mig 0058): web | web_voice |
+// telegram_text | telegram_voice | manual.
+//
+// 'web_text' (canal de captura pela web via teclado) → 'web' (mantém
+// compat com 846 rows históricas que já têm source='web'). Voz na web
+// fica 'web_voice' separável pra analytics.
+export function channelToSource(c: CaptureChannel): string {
   if (c === "telegram_text") return "telegram_text"
   if (c === "telegram_voice") return "telegram_voice"
   if (c === "web_voice") return "web_voice"
