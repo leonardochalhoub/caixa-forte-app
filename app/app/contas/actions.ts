@@ -30,18 +30,61 @@ export async function createAccount(input: z.infer<typeof CreateAccountSchema>) 
   // Ticket sempre formal (regra de negócio); outros tipos default false
   // a menos que o user marque na UI.
   const formal = parsed.type === "ticket" ? true : (parsed.isFormalIncome ?? false)
+  const opening = parsed.openingBalanceCents ?? 0
+
+  // Quando a conta é marcada como rendimento formal E tem saldo inicial,
+  // ao invés de gravar opening_balance_cents, criamos uma transação de
+  // income (paid_at=hoje). Assim o saldo inicial entra ao mesmo tempo
+  // como SALDO TOTAL e como ENTRADA DO MÊS — comportamento que o user
+  // pediu: "When a user creates a Conta, it must add to saldo".
+  // Para contas não-formais ou sem saldo inicial, mantemos
+  // opening_balance_cents (comportamento legado).
+  const shouldSeedIncomeTx = formal && opening > 0
+  const openingForAccount = shouldSeedIncomeTx ? 0 : opening
+
   const { data, error } = await supabase
     .from("accounts")
     .insert({
       user_id: user.id,
       name: parsed.name,
       type: parsed.type,
-      opening_balance_cents: parsed.openingBalanceCents ?? 0,
+      opening_balance_cents: openingForAccount,
       is_formal_income: formal,
     } as never)
     .select()
     .single()
   if (error) throw new Error(error.message)
+
+  if (shouldSeedIncomeTx && data) {
+    // Categoria: pega a primeira categoria is_formal_income=true do user
+    // (Salário, Vale-Alimentação, etc — depende do que ele tem).
+    // Se não houver, deixa NULL (vai pra "sem categoria" e user atribui depois).
+    const { data: formalCat } = await supabase
+      .from("categories")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_formal_income", true)
+      .is("archived_at", null)
+      .limit(1)
+      .maybeSingle()
+
+    const today = new Date().toISOString().slice(0, 10)
+    await supabase
+      .from("transactions")
+      .insert({
+        user_id: user.id,
+        account_id: (data as { id: string }).id,
+        category_id: formalCat?.id ?? null,
+        type: "income",
+        amount_cents: opening,
+        occurred_on: today,
+        merchant: `Saldo inicial · ${parsed.name}`,
+        note: "Lançamento automático ao criar conta com 'rendimento formal' marcado.",
+        source: "manual",
+        paid_at: `${today}T12:00:00Z`,
+      } as never)
+  }
+
   revalidatePath("/app/contas")
   revalidatePath("/app")
   return data
