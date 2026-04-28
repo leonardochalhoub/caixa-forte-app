@@ -16,12 +16,14 @@ export interface KpiOverviewProps {
   cryptoCents: number
   fgtsCents: number
   creditCents: number
+  ticketCents: number
   liquidAccounts: BreakdownAccount[]
   savingsAccounts: BreakdownAccount[]
   investmentAccounts: BreakdownAccount[]
   cryptoAccounts: BreakdownAccount[]
   fgtsAccounts: BreakdownAccount[]
   creditAccounts: BreakdownAccount[]
+  ticketAccounts: BreakdownAccount[]
   // Optional right-rail content that sits beside "Saldo total agora".
   heroAside?: React.ReactNode
   // Short AI-generated sentences explaining each time-window's verdict.
@@ -41,12 +43,14 @@ export function KpiOverview({
   cryptoCents,
   fgtsCents,
   creditCents,
+  ticketCents,
   liquidAccounts,
   savingsAccounts,
   investmentAccounts,
   cryptoAccounts,
   fgtsAccounts,
   creditAccounts,
+  ticketAccounts,
   heroAside,
   trendExplanations,
 }: KpiOverviewProps) {
@@ -72,12 +76,14 @@ export function KpiOverview({
         cryptoCents={cryptoCents}
         fgtsCents={fgtsCents}
         creditCents={creditCents}
+        ticketCents={ticketCents}
         liquidAccounts={liquidAccounts}
         savingsAccounts={savingsAccounts}
         investmentAccounts={investmentAccounts}
         cryptoAccounts={cryptoAccounts}
         fgtsAccounts={fgtsAccounts}
         creditAccounts={creditAccounts}
+        ticketAccounts={ticketAccounts}
         monthLabel={current.label}
         monthNetCents={current.netCents}
         incomeCents={current.incomeCents}

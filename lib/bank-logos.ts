@@ -59,6 +59,17 @@ const BANK_DOMAINS: Record<string, string> = {
   bitso: "bitso.com",
   novadax: "novadax.com.br",
   foxbit: "foxbit.com.br",
+
+  // Vale-benefício corporativo
+  ticket: "ticket.com.br",
+  "ticket vale-alimentação": "ticket.com.br",
+  "ticket vale-refeição": "ticket.com.br",
+  "ticket alimentação": "ticket.com.br",
+  "ticket refeição": "ticket.com.br",
+  sodexo: "sodexobeneficios.com.br",
+  alelo: "alelo.com.br",
+  "vr benefícios": "vr.com.br",
+  "vr beneficios": "vr.com.br",
 }
 
 function normalize(name: string): string {

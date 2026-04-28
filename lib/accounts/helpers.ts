@@ -23,6 +23,7 @@ export const TYPE_LABELS: Record<AccountType, string> = {
   poupanca: "Poupança",
   crypto: "Cripto",
   fgts: "FGTS",
+  ticket: "Vale-benefício",
 }
 
 export interface BankGroup {

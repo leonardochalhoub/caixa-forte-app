@@ -175,12 +175,14 @@ export default async function DashboardPage() {
         cryptoCents={totals.cryptoCents}
         fgtsCents={totals.fgtsCents}
         creditCents={totals.creditCents}
+        ticketCents={totals.ticketCents}
         liquidAccounts={grouped.liquidAccounts}
         savingsAccounts={grouped.savingsAccounts}
         investmentAccounts={grouped.investmentAccounts}
         cryptoAccounts={grouped.cryptoAccounts}
         fgtsAccounts={grouped.fgtsAccounts}
         creditAccounts={grouped.creditAccounts}
+        ticketAccounts={grouped.ticketAccounts}
       />
 
       <Card>

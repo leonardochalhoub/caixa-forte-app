@@ -17,14 +17,19 @@ const CreateAccountSchema = z.object({
     "poupanca",
     "crypto",
     "fgts",
+    "ticket",
   ]),
   openingBalanceCents: z.number().int().optional(),
+  isFormalIncome: z.boolean().optional(),
 })
 
 export async function createAccount(input: z.infer<typeof CreateAccountSchema>) {
   const user = await requireUser()
   const parsed = CreateAccountSchema.parse(input)
   const supabase = await createServerClient()
+  // Ticket sempre formal (regra de negócio); outros tipos default false
+  // a menos que o user marque na UI.
+  const formal = parsed.type === "ticket" ? true : (parsed.isFormalIncome ?? false)
   const { data, error } = await supabase
     .from("accounts")
     .insert({
@@ -32,7 +37,8 @@ export async function createAccount(input: z.infer<typeof CreateAccountSchema>) 
       name: parsed.name,
       type: parsed.type,
       opening_balance_cents: parsed.openingBalanceCents ?? 0,
-    })
+      is_formal_income: formal,
+    } as never)
     .select()
     .single()
   if (error) throw new Error(error.message)

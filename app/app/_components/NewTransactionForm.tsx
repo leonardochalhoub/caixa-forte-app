@@ -40,6 +40,7 @@ const TYPE_LABELS: Record<AccountType, string> = {
   poupanca: "Poupança",
   crypto: "Cripto",
   fgts: "FGTS",
+  ticket: "Vale-benefício",
 }
 
 const SUFFIXES = [

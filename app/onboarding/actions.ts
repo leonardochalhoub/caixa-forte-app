@@ -20,6 +20,7 @@ const CreateAccountSchema = z.object({
     "poupanca",
     "crypto",
     "fgts",
+    "ticket",
   ]),
 })
 

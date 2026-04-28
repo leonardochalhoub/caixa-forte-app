@@ -12,6 +12,7 @@ export type AccountType =
   | "poupanca"
   | "crypto"
   | "fgts"
+  | "ticket"
 export type TransactionType = "income" | "expense"
 export type TransactionSource = "web" | "telegram_text" | "telegram_voice" | "manual"
 export type MessageRole = "user" | "assistant" | "tool"

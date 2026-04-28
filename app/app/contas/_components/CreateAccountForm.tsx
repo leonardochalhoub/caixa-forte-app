@@ -23,6 +23,9 @@ export function CreateAccountForm({ knownBanks }: { knownBanks: string[] }) {
   const [newNickname, setNewNickname] = useState("")
   const [newType, setNewType] = useState<AccountType>("checking")
   const [newOpeningStr, setNewOpeningStr] = useState("")
+  // ticket é por natureza rendimento formal (vale-benefício corporativo);
+  // outros tipos default false e o user marca se quiser.
+  const [isFormalIncome, setIsFormalIncome] = useState(false)
   const [pending, start] = useTransition()
 
   function composeName() {
@@ -39,17 +42,21 @@ export function CreateAccountForm({ knownBanks }: { knownBanks: string[] }) {
     if (!name) return
     const openingCents =
       newOpeningStr.trim().length === 0 ? 0 : (parseBRLToCents(newOpeningStr) ?? 0)
+    // Auto-flag: ticket sempre formal income (regra de negócio).
+    const formalFlag = newType === "ticket" ? true : isFormalIncome
     start(async () => {
       try {
         await createAccount({
           name,
           type: newType,
           openingBalanceCents: openingCents,
+          isFormalIncome: formalFlag,
         })
         toast.success(`${name} criada.`)
         setNewBank("")
         setNewNickname("")
         setNewOpeningStr("")
+        setIsFormalIncome(false)
       } catch (error) {
         toast.error((error as Error).message)
       }
@@ -113,6 +120,7 @@ export function CreateAccountForm({ knownBanks }: { knownBanks: string[] }) {
                 <SelectItem value="crypto">Cripto</SelectItem>
                 <SelectItem value="fgts">FGTS</SelectItem>
                 <SelectItem value="credit">Cartão</SelectItem>
+                <SelectItem value="ticket">Vale-benefício</SelectItem>
                 <SelectItem value="cash">Dinheiro</SelectItem>
                 <SelectItem value="wallet">Carteira</SelectItem>
               </SelectContent>
@@ -158,6 +166,29 @@ export function CreateAccountForm({ knownBanks }: { knownBanks: string[] }) {
             Adicionar
           </Button>
         </form>
+
+        {/* Checkbox de rendimento formal — em linha separada pra não
+            poluir o grid principal. ticket auto-marca; outros tipos
+            o user decide. Útil pra DRE separar receita formal vs informal
+            e pra relatórios "% do patrimônio em renda formal". */}
+        <label className="flex cursor-pointer items-center gap-2 pt-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={newType === "ticket" ? true : isFormalIncome}
+            disabled={newType === "ticket"}
+            onChange={(e) => setIsFormalIncome(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-border accent-strong"
+          />
+          <span>
+            <strong className="text-strong">Rendimento formal</strong> — saldo
+            veio de salário CLT, vale-benefício, premiação ou restituição IR.
+            {newType === "ticket" && (
+              <span className="ml-1 text-[10px] uppercase tracking-wider">
+                · auto pra Vale-benefício
+              </span>
+            )}
+          </span>
+        </label>
       </CardContent>
     </Card>
   )

@@ -339,6 +339,7 @@ export type GroupedAccounts = {
   cryptoAccounts: AccountWithBalance[]
   fgtsAccounts: AccountWithBalance[]
   creditAccounts: AccountWithBalance[]
+  ticketAccounts: AccountWithBalance[]
 }
 
 export type GroupedTotals = {
@@ -348,6 +349,7 @@ export type GroupedTotals = {
   cryptoCents: number
   fgtsCents: number
   creditCents: number
+  ticketCents: number
 }
 
 export function groupAccountsByType(
@@ -362,6 +364,9 @@ export function groupAccountsByType(
   const cryptoAccounts = accountsWithBalance.filter((a) => a.type === "crypto")
   const fgtsAccounts = accountsWithBalance.filter((a) => a.type === "fgts")
   const creditAccounts = accountsWithBalance.filter((a) => a.type === "credit")
+  const ticketAccounts = accountsWithBalance.filter((a) => a.type === "ticket")
+  // Liquid = corrente, cash, wallet, etc. — tudo que sobra após
+  // categorias específicas. Ticket sai daqui pra ter painel próprio.
   const liquidAccounts = accountsWithBalance.filter(
     (a) =>
       a.type !== "savings" &&
@@ -369,7 +374,8 @@ export function groupAccountsByType(
       a.type !== "investment" &&
       a.type !== "crypto" &&
       a.type !== "fgts" &&
-      a.type !== "credit",
+      a.type !== "credit" &&
+      a.type !== "ticket",
   )
   return {
     liquidAccounts,
@@ -378,6 +384,7 @@ export function groupAccountsByType(
     cryptoAccounts,
     fgtsAccounts,
     creditAccounts,
+    ticketAccounts,
   }
 }
 
@@ -391,15 +398,20 @@ export function sumGroupTotals(grouped: GroupedAccounts): GroupedTotals {
     cryptoCents: sum(grouped.cryptoAccounts),
     fgtsCents: sum(grouped.fgtsAccounts),
     creditCents: sum(grouped.creditAccounts),
+    ticketCents: sum(grouped.ticketAccounts),
   }
 }
 
 /**
  * Saldo total exibido no hero. = dinheiro que você TEM nas contas
- * agora (líquido + savings + investimentos + cripto) − pendentes não
- * alocados. FGTS fora (bloqueado). Dívida de cartão NÃO é descontada
- * — o dinheiro ainda está na sua conta; só sai quando você paga a
- * fatura.
+ * agora (líquido + savings + investimentos + cripto + ticket) −
+ * pendentes não alocados. FGTS fora (bloqueado). Dívida de cartão
+ * NÃO é descontada — o dinheiro ainda está na sua conta; só sai
+ * quando você paga a fatura.
+ *
+ * Ticket é incluído porque é dinheiro USÁVEL hoje (paga comida no
+ * iFood, mercado, etc) — funcionalmente é líquido. Tem painel próprio
+ * só pra distinguir visualmente de conta corrente.
  */
 export function buildTotalBalanceCents(
   totals: GroupedTotals,
@@ -410,6 +422,7 @@ export function buildTotalBalanceCents(
     totals.savingsCents +
     totals.investmentCents +
     totals.cryptoCents +
+    totals.ticketCents +
     pendingNetCents
   )
 }

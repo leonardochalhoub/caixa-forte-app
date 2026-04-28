@@ -7,6 +7,7 @@ import {
   Landmark,
   LineChart,
   PiggyBank,
+  Ticket,
   TrendingDown,
   TrendingUp,
   Wallet,
@@ -22,12 +23,14 @@ export interface HeroBalanceProps {
   cryptoCents: number
   fgtsCents: number
   creditCents: number
+  ticketCents: number
   liquidAccounts: BreakdownAccount[]
   savingsAccounts: BreakdownAccount[]
   investmentAccounts: BreakdownAccount[]
   cryptoAccounts: BreakdownAccount[]
   fgtsAccounts: BreakdownAccount[]
   creditAccounts: BreakdownAccount[]
+  ticketAccounts: BreakdownAccount[]
   monthLabel: string
   monthNetCents: number
   incomeCents: number
@@ -45,12 +48,14 @@ export function HeroBalance({
   cryptoCents,
   fgtsCents,
   creditCents,
+  ticketCents,
   liquidAccounts,
   savingsAccounts,
   investmentAccounts,
   cryptoAccounts,
   fgtsAccounts,
   creditAccounts,
+  ticketAccounts,
   monthLabel,
   monthNetCents,
   incomeCents,
@@ -180,6 +185,13 @@ export function HeroBalance({
             accounts={liquidAccounts}
             totalCents={liquidCents}
             emptyHint="Adicione uma conta corrente"
+          />
+          <BreakdownPanel
+            icon={<Ticket className="h-3 w-3" />}
+            title="Vale-benefício"
+            accounts={ticketAccounts}
+            totalCents={ticketCents}
+            emptyHint="Ticket VR/VA, Sodexo, Alelo"
           />
           <BreakdownPanel
             icon={<Landmark className="h-3 w-3" />}

@@ -34,10 +34,12 @@ const TYPE_LABELS: Record<AccountType, string> = {
   poupanca: "Poupança",
   crypto: "Cripto",
   fgts: "FGTS",
+  ticket: "Vale-benefício",
 }
 
 const TYPES: AccountType[] = [
   "checking",
+  "ticket",
   "savings",
   "poupanca",
   "investment",
