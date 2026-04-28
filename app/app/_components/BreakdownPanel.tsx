@@ -3,6 +3,18 @@ import { formatBRL } from "@/lib/money"
 import { shortBankName, splitBankAndSub } from "@/lib/bank-taxonomy"
 import { BankLogoImg } from "./BankLogoImg"
 
+// Abrevia subs de vale-benefício pra "VA" (alimentação) ou "VR" (refeição)
+// pra distinguir 2+ contas Ticket no mesmo painel sem repetir "Ticket"
+// crú. User pediu: "se for Vale-alimentação, aparece Ticket VA;
+// se for Vale-refeição, Ticket VR".
+function abbreviateVale(sub: string | null): string | null {
+  if (!sub) return null
+  const norm = sub.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "")
+  if (norm.includes("alimenta")) return "VA"
+  if (norm.includes("refeic") || norm.includes("refei")) return "VR"
+  return null
+}
+
 export interface BreakdownAccount {
   id: string
   name: string
@@ -55,8 +67,11 @@ export function BreakdownPanel({
                 : b.balanceCents - a.balanceCents,
             )
             .map((acc) => {
-              const { bank } = splitBankAndSub(acc.name)
-              const label = shortBankName(bank)
+              const { bank, sub } = splitBankAndSub(acc.name)
+              const subAbbrev = abbreviateVale(sub)
+              const label = subAbbrev
+                ? `${shortBankName(bank)} ${subAbbrev}`
+                : shortBankName(bank)
               return (
                 <li
                   key={acc.id}
@@ -64,7 +79,7 @@ export function BreakdownPanel({
                 >
                   <span className="flex min-w-0 items-center gap-1.5 text-body">
                     <BankLogoImg name={bank} />
-                    <span className="truncate" title={bank}>
+                    <span className="truncate" title={acc.name}>
                       {label}
                     </span>
                   </span>
