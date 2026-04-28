@@ -108,6 +108,17 @@ export function HeroBalance({
               >
                 {formatBRL(totalBalanceCents)}
               </p>
+              {/* Breakdown discreto da composição — user pediu pra
+                  deixar transparente que ticket/savings/etc estão
+                  somados. Só mostra grupos com saldo > 0. Formato
+                  enxuto sem centavos pra caber em uma linha. */}
+              <SaldoBreakdownLine
+                liquidCents={liquidCents}
+                ticketCents={ticketCents}
+                savingsCents={savingsCents}
+                investmentCents={investmentCents}
+                cryptoCents={cryptoCents}
+              />
             </div>
           </div>
           {aside && <div className="min-w-0">{aside}</div>}
@@ -243,5 +254,51 @@ export function HeroBalance({
 
       </div>
     </div>
+  )
+}
+
+// Pequena linha de breakdown abaixo do saldo total. Mostra só grupos com
+// saldo > 0 e formato compacto sem centavos pra caber em mobile estreito.
+// User pediu: "um breakdown pode ser bom. pequeno, discreto."
+function SaldoBreakdownLine({
+  liquidCents,
+  ticketCents,
+  savingsCents,
+  investmentCents,
+  cryptoCents,
+}: {
+  liquidCents: number
+  ticketCents: number
+  savingsCents: number
+  investmentCents: number
+  cryptoCents: number
+}) {
+  const fmt = (c: number) =>
+    Math.abs(c) >= 100_000_00
+      ? `R$ ${Math.round(c / 100_000) / 10}k` // ≥100k → "R$ 1.4k"
+      : `R$ ${Math.round(c / 100).toLocaleString("pt-BR")}`
+  const parts: Array<[string, number]> = [
+    ["Conta", liquidCents],
+    ["Ticket", ticketCents],
+    ["Renda Fixa", savingsCents],
+    ["RV", investmentCents],
+    ["Cripto", cryptoCents],
+  ]
+  const visible = parts.filter(([, v]) => v > 0)
+  if (visible.length === 0) return null
+  return (
+    <p
+      className="mt-2 truncate font-mono text-[11px] tabular-nums text-muted"
+      aria-hidden="true"
+      title="Composição do saldo total"
+    >
+      {visible.map(([label, v], i) => (
+        <span key={label}>
+          {i > 0 && <span className="px-1.5 opacity-40">+</span>}
+          <span>{label}</span>
+          <span className="ml-1 text-body">{fmt(v)}</span>
+        </span>
+      ))}
+    </p>
   )
 }
