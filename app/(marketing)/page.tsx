@@ -9,9 +9,22 @@ import { SafeBoxIcon } from "@/components/SafeBoxIcon"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 // deploy nudge
-export default function LandingPage() {
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ demo_error?: string }>
+}) {
+  const sp = await searchParams
+  const demoError = sp.demo_error
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
+      {demoError && (
+        <div className="border-b border-expense/40 bg-expense/10 px-6 py-3">
+          <p className="mx-auto max-w-2xl text-center text-sm text-expense">
+            <strong>Erro ao entrar como Larissa:</strong> {demoError}
+          </p>
+        </div>
+      )}
       <header className="flex h-16 items-center justify-between border-b border-border px-6">
         <div className="flex items-center gap-2 tracking-tight text-ink">
           <SafeBoxIcon size={22} strokeWidth={1.75} className="text-strong" />

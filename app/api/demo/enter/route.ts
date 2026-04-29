@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { createServerClient } from "@/lib/supabase/server"
+import { DEMO_PASSWORD as SEED_DEMO_PASSWORD } from "@/lib/admin/seed-demo/auth-user"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 10
 
 const DEMO_EMAIL = process.env.DEMO_EMAIL ?? "larissa.demo@caixa-forte.app"
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD
+// Fallback pra constante hardcoded do seed (lib/admin/seed-demo/auth-user.ts).
+// Larissa é conta de demo PÚBLICA — todos os dados são fictícios gerados
+// por IA, não há segredo real. Env var só sobrescreve se quiser rotacionar.
+// Antes só lia de process.env.DEMO_PASSWORD; quando ausente em Vercel,
+// rota redirecionava silenciosamente pra "/?demo_error=..." e user via
+// só a landing aparecer (bug reportado pelo user).
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? SEED_DEMO_PASSWORD
 
 export async function GET(req: Request) {
   try {
