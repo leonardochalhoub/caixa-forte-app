@@ -33,10 +33,15 @@ export default function LandingPage() {
       </header>
 
       <section className="mx-auto w-full max-w-2xl space-y-2 px-6 pt-10">
-        <Link
+        {/* <a> nativo (não <Link>): /api/demo/enter é Route Handler que
+            faz signin + redirect 303. Next.js Link às vezes intercepta
+            como client-nav e ignora target=_blank em determinadas
+            condições; <a> garante que o browser abra nova tab
+            corretamente. */}
+        <a
           href="/api/demo/enter"
           target="_blank"
-          rel="noopener"
+          rel="noopener noreferrer"
           className="group flex items-center gap-4 rounded-2xl border border-border bg-subtle/40 p-4 transition-colors hover:border-strong/30 hover:bg-subtle"
         >
           <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-border">
@@ -62,7 +67,7 @@ export default function LandingPage() {
             </p>
           </div>
           <ArrowRight className="h-4 w-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-strong" />
-        </Link>
+        </a>
         <p className="px-1 text-[11px] leading-relaxed text-muted">
           <strong className="font-semibold text-body">Aviso:</strong>{" "}
           Larissa Oliveira não existe. Nome, transações, saldos, cartões e

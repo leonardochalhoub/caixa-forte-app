@@ -36,6 +36,7 @@ export async function GET(req: Request) {
     }
 
     if (!DEMO_PASSWORD) {
+      console.error("[demo/enter] DEMO_PASSWORD ausente em prod")
       return NextResponse.redirect(
         `${origin}/?demo_error=${encodeURIComponent("DEMO_PASSWORD não configurada no servidor")}`,
         { status: 303 },
@@ -43,14 +44,25 @@ export async function GET(req: Request) {
     }
 
     // Sign-in como Larissa: cria os cookies de auth dela nesse browser.
-    // Quando o usuário for em /login e logar com a própria senha, os
-    // cookies são sobrescritos — volta pra conta dele.
+    // Cookies HTTP são por-domain, não por-tab — então isso afeta TODAS
+    // as tabs abertas. Quando o usuário for em /login e logar com a
+    // própria senha, os cookies são sobrescritos — volta pra conta dele.
+    //
+    // Pra garantir signin limpo (evita race com sessão prévia), faz
+    // signOut antes. Sem isso, supabase-js pode manter o JWT antigo
+    // mesmo com signInWithPassword successful — explicava o sintoma
+    // "clica botão e volta pra main page" reportado pelo user (a sessão
+    // anterior persistia e /app via cookies inconsistentes).
     const supabase = await createServerClient()
+    await supabase.auth.signOut().catch(() => {
+      // best-effort — segue mesmo se falhar (ex.: já deslogado)
+    })
     const { error } = await supabase.auth.signInWithPassword({
       email: DEMO_EMAIL,
       password: DEMO_PASSWORD,
     })
     if (error) {
+      console.error("[demo/enter] signin falhou:", error.message)
       return NextResponse.redirect(
         `${origin}/?demo_error=${encodeURIComponent(error.message)}`,
         { status: 303 },
