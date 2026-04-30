@@ -49,12 +49,19 @@ export function groupAdjustmentsBySection(
       (a.metadata as FipeMetadata | null)?.source === "fipe"
         ? ("fipe" as const)
         : null
+    // Pares de registry (pensão etc) carregam metadata.registry_id.
+    // Usado pelo botão delete pra apagar AMBOS os lados via
+    // deleteBalanceRegistryAction (em vez de deletar 1 lado só e
+    // deixar o outro órfão).
+    const registryId =
+      (a.metadata as { registry_id?: string } | null)?.registry_id ?? null
     list.push({
       id: a.id,
       label: a.label,
       amount_cents: a.amount_cents,
       note: a.note,
       readonly_source: readonlySource,
+      registry_id: registryId,
     })
     map.set(section, list)
   }

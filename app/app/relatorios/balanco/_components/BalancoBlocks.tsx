@@ -85,7 +85,11 @@ export function AdjList({
                 {formatBRL(a.amount_cents)}
               </span>
               {!readonly && (
-                <span className="no-print absolute right-0 top-1/2 -translate-y-1/2 translate-x-full pl-1 opacity-0 transition-opacity group-hover:opacity-100">
+                // Antes ficava opacity-0 com group-hover pra reaparecer.
+                // Mas mobile não tem hover — user não conseguia deletar.
+                // Agora sempre visível mas discreto (opacity-50) e fica
+                // 100% no hover/focus.
+                <span className="no-print shrink-0 pl-2 opacity-50 transition-opacity hover:opacity-100 focus-within:opacity-100">
                   <AdjustmentActions adjustment={a} />
                 </span>
               )}

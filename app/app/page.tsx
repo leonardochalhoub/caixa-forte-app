@@ -15,6 +15,7 @@ import { PendingCaptures } from "./_components/PendingCaptures"
 import { QuickCapture } from "./_components/QuickCapture"
 import { RecentTransactions } from "./_components/RecentTransactions"
 import { UpcomingList } from "./_components/UpcomingList"
+import { UpcomingInvoices } from "./_components/UpcomingInvoices"
 // Recharts via lazy boundary — economiza ~95KB no JS inicial do /app.
 // (Conselho v4 vercel-perf)
 import {
@@ -253,6 +254,17 @@ export default async function DashboardPage() {
         upcomingNet={upcomingNet}
         accountNameMap={accountNameMap}
         effectiveAmountCents={effectiveAmountCents}
+      />
+
+      <UpcomingInvoices
+        cards={accounts
+          .filter((a) => a.type === "credit")
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            openDebtCents: openDebtByCard.get(a.id) ?? 0,
+            closingDay: (a.closing_day as number | null | undefined) ?? null,
+          }))}
       />
 
       <section className="space-y-3">

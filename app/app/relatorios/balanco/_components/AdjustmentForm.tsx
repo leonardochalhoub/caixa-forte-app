@@ -18,6 +18,7 @@ import { parseBRLToCents } from "@/lib/money"
 import {
   createBalanceAdjustmentAction,
   deleteBalanceAdjustmentAction,
+  deleteBalanceRegistryAction,
   updateBalanceAdjustmentAction,
 } from "../actions"
 
@@ -30,6 +31,11 @@ export type Adjustment = {
   // — o valor é gerenciado pelo auto-sync, editar à mão seria perdido
   // na próxima renderização.
   readonly_source?: "fipe" | null
+  // Se o adjustment é parte de um par registry (partida dobrada —
+  // ex: pensão tem debit em PL + credit em ativo), guarda o registry_id
+  // pra deletar o PAR completo via deleteBalanceRegistryAction.
+  // Apagar 1 lado só deixa o outro órfão e quebra o balanço.
+  registry_id?: string | null
 }
 
 export function AddLineButton({
@@ -183,10 +189,21 @@ export function AdjustmentActions({ adjustment }: { adjustment: Adjustment }) {
   }
 
   function remove() {
-    if (!confirm(`Remover "${adjustment.label}" do balanço?`)) return
+    const isRegistry = !!adjustment.registry_id
+    const msg = isRegistry
+      ? `Remover "${adjustment.label}" do balanço? Vai apagar AMBOS os lados do registro contábil (débito + crédito).`
+      : `Remover "${adjustment.label}" do balanço?`
+    if (!confirm(msg)) return
     start(async () => {
       try {
-        await deleteBalanceAdjustmentAction(adjustment.id)
+        if (isRegistry && adjustment.registry_id) {
+          // Pensão e similares são partida dobrada — deleta o par
+          // inteiro via deleteBalanceRegistryAction (apaga registry +
+          // 2 adjustments). Apagar só 1 lado deixa o outro órfão.
+          await deleteBalanceRegistryAction(adjustment.registry_id)
+        } else {
+          await deleteBalanceAdjustmentAction(adjustment.id)
+        }
         toast.success("Removido.")
       } catch (err) {
         toast.error((err as Error).message)
