@@ -60,16 +60,21 @@ export interface BucketableTx {
 /**
  * Bucketize por mês. Regras:
  * - Transferências (is_transfer=true) nunca contam nas KPIs.
- * - Incomes só contam se category_id estiver em formalIncomeCategoryIds
- *   (renda do trabalho). Rendimentos de capital (ações, dividendos)
- *   ficam fora do "Saldo operacional do mês" — são resultado não
- *   operacional, mostrados separadamente no DRE.
+ * - Incomes não-transfer TODOS contam — "Entrada do mês" = soma do que
+ *   entrou, independente da natureza (salário, extra, capital, reembolso).
+ *   DRE tem sua própria lógica que separa formal vs capital em buildIncomeGroups.
+ *   Antes: filtrava por formalIncomeCategoryIds, mas user reportou que
+ *   tx income com categoria não-formal não aparecia em "Entrada do mês"
+ *   (categoria 'Renda (entrada)' criada pelo pipeline com is_formal=false).
  * - Expenses não-transfer todos contam.
+ *
+ * Param formalIncomeCategoryIds mantido por compat de assinatura mas
+ * não é mais usado.
  */
 export function bucketizeTransactions(
   transactions: BucketableTx[],
   slots: MonthSlot[],
-  formalIncomeCategoryIds: Set<string>,
+  _formalIncomeCategoryIds: Set<string>,
 ): MonthlyTotals[] {
   const empty = new Map<string, MonthlyTotals>()
   for (const s of slots) {
@@ -87,9 +92,7 @@ export function bucketizeTransactions(
     const bucket = empty.get(monthKey)
     if (!bucket) continue
     if (tx.type === "income") {
-      if (tx.category_id && formalIncomeCategoryIds.has(tx.category_id)) {
-        bucket.incomeCents += Number(tx.amount_cents)
-      }
+      bucket.incomeCents += Number(tx.amount_cents)
     } else {
       bucket.expenseCents += Number(tx.amount_cents)
     }

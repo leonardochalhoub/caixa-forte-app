@@ -1,6 +1,7 @@
 "use client"
 
 import { useMemo, useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -94,6 +95,7 @@ export function NewTransactionForm({
   const [note, setNote] = useState("")
   const [pending, start] = useTransition()
   const [newAccountOpen, setNewAccountOpen] = useState(false)
+  const router = useRouter()
 
   const groupedAccounts = useMemo(() => {
     const map = new Map<string, { bank: string; items: Array<Account & { sub: string | null }> }>()
@@ -152,6 +154,12 @@ export function NewTransactionForm({
         setAmount("")
         setMerchant("")
         setNote("")
+        // Força re-fetch dos Server Components no cliente atual.
+        // RealtimeTxRefresh já escuta INSERT na transactions table, mas
+        // tem latência (subscribe → INSERT → broadcast → handler) que
+        // o user percebia como "precisa F5". router.refresh() instantâneo
+        // dá feedback imediato — Realtime serve pra OUTRAS abas/dispositivos.
+        router.refresh()
         onSaved?.()
       } catch (error) {
         toast.error((error as Error).message)
