@@ -5,6 +5,7 @@ import { z } from "zod"
 import { revalidatePath } from "next/cache"
 import { requireUser } from "@/lib/auth"
 import { createServerClient } from "@/lib/supabase/server"
+import { captureException } from "@/lib/observability/instrument"
 
 // Deriva uma UUID v5-like estável de uma string. Usado pra idempotency
 // de pay_invoice — mesma combinação (user, cartão, fatura) sempre gera
@@ -103,11 +104,47 @@ export async function payInvoiceAction(
     p_invoice_label: parsed.invoiceLabel,
     p_idempotency_key: idempotencyKey,
   })
-  if (error) throw new Error(`Falha ao pagar fatura: ${error.message}`)
+  if (error) {
+    // Supabase RPC errors carregam code/details/hint do Postgres — sem
+    // captureException, Next.js esconde tudo em prod ("specific message
+    // is omitted in production build"). Loga estruturado pra Vercel logs.
+    const pgErr = error as { code?: string; details?: string; hint?: string; message?: string }
+    captureException(error, {
+      scope: "pay-invoice",
+      userId: user.id,
+      extra: {
+        cardId: parsed.cardId,
+        sourceAccountId: parsed.sourceAccountId,
+        amountCents: parsed.amountCents,
+        invoiceLabel: parsed.invoiceLabel,
+        idempotencyKey,
+        pgCode: pgErr.code,
+        pgDetails: pgErr.details,
+        pgHint: pgErr.hint,
+      },
+    })
+    const detail = pgErr.code ? ` [${pgErr.code}]` : ""
+    throw new Error(`Falha ao pagar fatura${detail}: ${error.message}`)
+  }
 
-  revalidatePath("/app/cartoes")
-  revalidatePath("/app")
-  revalidatePath("/app/contas")
+  try {
+    revalidatePath("/app/cartoes")
+    revalidatePath("/app")
+    revalidatePath("/app/contas")
+  } catch (revErr) {
+    // revalidatePath pode falhar se a re-renderização do RSC quebrar
+    // (esse é o caminho que vira "An error occurred in the Server
+    // Components render"). Loga e relança pra cliente saber.
+    captureException(revErr, {
+      scope: "pay-invoice:revalidate",
+      userId: user.id,
+      extra: {
+        cardId: parsed.cardId,
+        invoiceLabel: parsed.invoiceLabel,
+      },
+    })
+    throw revErr
+  }
   const result = data as {
     deleted_scheduled_ids?: string[]
     marked_charge_ids?: string[]
