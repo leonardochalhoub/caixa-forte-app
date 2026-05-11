@@ -20,7 +20,7 @@ export function AppNav({ showSysadmin = false }: { showSysadmin?: boolean }) {
     : BASE_NAV
 
   return (
-    <nav className="flex items-center justify-center gap-1 overflow-x-auto px-4 py-2 [scrollbar-width:none] md:gap-2 md:py-0 [&::-webkit-scrollbar]:hidden">
+    <nav className="flex flex-wrap items-center justify-center gap-1 px-4 py-2 md:flex-nowrap md:gap-2 md:py-0">
       {items.map((item) => {
         const active =
           item.href === "/app"

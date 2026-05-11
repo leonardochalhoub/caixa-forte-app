@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { isAuthorizedCron } from "@/lib/cron-auth"
 
 // Cron diário: pra cada user com transações, popula balance_snapshots
 // com saldo total + breakdown por conta + por tipo. Idempotente via
@@ -17,9 +18,7 @@ export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
 export async function GET(req: Request) {
-  const auth = req.headers.get("authorization") ?? ""
-  const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`
-  if (!process.env.CRON_SECRET || auth !== expected) {
+  if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   }
 

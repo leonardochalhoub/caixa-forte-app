@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { isAuthorizedCron } from "@/lib/cron-auth"
 
 // Cron job: apaga usuários que nunca confirmaram email em >2 dias.
-// Vercel chama GET com header "Authorization: Bearer $CRON_SECRET".
-// Pra testar local: curl -H "Authorization: Bearer <secret>" <url>
+// Vercel chama com x-vercel-cron header (sem env var). Pra testar
+// local: curl -H "Authorization: Bearer <secret>" <url>
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 30
@@ -11,9 +12,7 @@ export const maxDuration = 30
 const GRACE_MS = 2 * 24 * 60 * 60 * 1000 // 2 dias
 
 export async function GET(req: Request) {
-  const auth = req.headers.get("authorization") ?? ""
-  const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`
-  if (!process.env.CRON_SECRET || auth !== expected) {
+  if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   }
 

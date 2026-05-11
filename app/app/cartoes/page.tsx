@@ -62,8 +62,8 @@ export default async function CartoesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="min-w-0">
           <h1 className="flex items-center gap-2 text-xl font-semibold text-strong">
             <CreditCard className="h-5 w-5" />
             Cartões de Crédito
@@ -93,10 +93,10 @@ export default async function CartoesPage() {
         <div className="space-y-6">
           {cardInvoices.map(({ card, invoices, openDebtCents }) => (
             <Card key={card.id}>
-              <CardContent className="space-y-4 p-5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <div className="space-y-1">
-                    <h2 className="text-base font-medium text-strong">{card.name}</h2>
+              <CardContent className="space-y-4 p-4 sm:p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <h2 className="truncate text-base font-medium text-strong">{card.name}</h2>
                     <p className="text-xs text-muted">
                       {openDebtCents > 0
                         ? "Dívida em aberto (todas as faturas não pagas)"
@@ -108,7 +108,7 @@ export default async function CartoesPage() {
                     />
                   </div>
                   <p
-                    className={`font-mono text-2xl font-semibold tabular-nums ${
+                    className={`shrink-0 font-mono text-2xl font-semibold tabular-nums ${
                       openDebtCents > 0 ? "text-expense" : "text-income"
                     }`}
                   >

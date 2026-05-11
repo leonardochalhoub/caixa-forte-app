@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { fetchFipePrice, type FipeMetadata } from "@/lib/fipe"
+import { isAuthorizedCron } from "@/lib/cron-auth"
 
 // Cron mensal: busca todas balance_adjustments com metadata.source=fipe
 // e GARANTE que existe uma entrada pro mês corrente com o valor atual
@@ -18,9 +19,7 @@ function currentMonthPeriod(): string {
 }
 
 export async function GET(req: Request) {
-  const auth = req.headers.get("authorization") ?? ""
-  const expected = `Bearer ${process.env.CRON_SECRET ?? ""}`
-  if (!process.env.CRON_SECRET || auth !== expected) {
+  if (!isAuthorizedCron(req)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 })
   }
 

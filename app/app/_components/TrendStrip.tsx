@@ -74,7 +74,6 @@ export function TrendStrip({ data }: { data: MonthlyTotals[] }) {
             dataKey="saidas"
             stroke="var(--color-expense)"
             strokeWidth={2}
-            strokeDasharray="4 2"
             dot={false}
             activeDot={{ r: 4 }}
           />
